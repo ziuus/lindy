@@ -46,6 +46,20 @@ type Mapping = {
   target?: string;
 };
 
+type UserFolder = {
+  name: string;
+  linux_path: string;
+  windows_path?: string;
+  exists_linux: boolean;
+  exists_windows: boolean;
+};
+
+type FolderMapping = {
+  linux_path: string;
+  windows_path: string;
+  folder_type: string;
+};
+
 function App() {
   const [rows, setRows] = useState<Mapping[]>([]);
   const [partitionUuid, setPartitionUuid] = useState("");
@@ -245,8 +259,302 @@ function App() {
   const [applyResultMessage, setApplyResultMessage] = useState('');
   const [operationsLog, setOperationsLog] = useState<string[]>([]);
 
+  // Auto-mapping state
+  const [autoMappingOpen, setAutoMappingOpen] = useState(false);
+  const [detectedFolders, setDetectedFolders] = useState<UserFolder[]>([]);
+  const [suggestedMappings, setSuggestedMappings] = useState<FolderMapping[]>([]);
+  const [windowsUsername, setWindowsUsername] = useState("");
+  const [autoMappingLoading, setAutoMappingLoading] = useState(false);
+  const [smartAutoMapLoading, setSmartAutoMapLoading] = useState(false);
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [errorDetails, setErrorDetails] = useState<{title: string, message: string, solution: string, technical?: string} | null>(null);
+
   const pushLog = (msg: string) => {
     setOperationsLog(l => [msg, ...l].slice(0, 50));
+  };
+
+  const detectUserFolders = async () => {
+    try {
+      const folders = await invoke<UserFolder[]>('detect_user_folders');
+      setDetectedFolders(folders);
+    } catch (e) {
+      console.error('Failed to detect user folders:', e);
+    }
+  };
+
+  const suggestFolderMappings = async () => {
+    if (!baseMount) {
+      alert('Please set a base mount point first');
+      return;
+    }
+    
+    setAutoMappingLoading(true);
+    try {
+      const mappings = await invoke<FolderMapping[]>('suggest_folder_mappings', {
+        windowsBasePath: baseMount,
+        username: windowsUsername || null,
+      });
+      setSuggestedMappings(mappings);
+      
+      if (mappings.length === 0) {
+        alert('No matching folders found. Make sure the Windows partition is mounted and contains user folders.');
+      }
+    } catch (e: any) {
+      console.error('Auto-mapping error:', e);
+      // Show user-friendly error message
+      const errorMsg = typeof e === 'string' ? e : 'Failed to scan for folder mappings';
+      alert(`Error: ${errorMsg}`);
+    } finally {
+      setAutoMappingLoading(false);
+    }
+  };
+
+  const applyAutoMappings = () => {
+    const newMappings = suggestedMappings.map(mapping => ({
+      id: Date.now() + Math.random(),
+      src: mapping.windows_path,
+      target: mapping.linux_path,
+    }));
+    
+    setRows(prev => [...prev, ...newMappings]);
+    setAutoMappingOpen(false);
+    setSuggestedMappings([]);
+  };
+
+  const parseWindowsPartitionError = (stderr: string, stdout: string) => {
+    const error = (stderr + ' ' + stdout).toLowerCase();
+    
+    // NTFS corruption/consistency issues
+    if (error.includes('$mftmirr does not match $mft') || 
+        error.includes('ntfs is either inconsistent') ||
+        error.includes('input/output error')) {
+      return {
+        title: '⚠️ Windows Wasn\'t Shut Down Properly',
+        message: 'Your Windows partition has some errors because Windows wasn\'t shut down correctly last time.',
+        solution: `This happens when:
+• Windows was forced to shut down
+• Power went out while Windows was running
+• Windows updates didn't finish properly
+
+Quick fix: Boot into Windows, let it start normally, then shut down properly. Try Smart Auto-Map again.`,
+        technical: stderr
+      };
+    }
+    
+    // Permission issues
+    if (error.includes('permission denied') || error.includes('operation not permitted')) {
+      return {
+        title: '🔐 Need Permission',
+        message: 'Need administrator access to mount your Windows partition.',
+        solution: `Make sure to click "Allow" when the permission dialog appears.
+
+If you don't see a permission dialog, try restarting the app.`,
+        technical: stderr
+      };
+    }
+    
+    // Device busy
+    if (error.includes('device is busy') || error.includes('target is busy')) {
+      return {
+        title: '📁 Windows Partition is Busy',
+        message: 'Something else is already using your Windows partition.',
+        solution: `Try these quick fixes:
+• Close any file managers or folders
+• Wait a moment and try again
+• Restart your computer if the problem continues`,
+        technical: stderr
+      };
+    }
+    
+    // No such device
+    if (error.includes('no such file or directory') || error.includes('no such device')) {
+      return {
+        title: '❓ Can\'t Find Windows Partition',
+        message: 'Your Windows partition disappeared or can\'t be accessed right now.',
+        solution: `This might help:
+• Try refreshing the app
+• Check if your Windows drive is connected properly
+• Restart your computer`,
+        technical: stderr
+      };
+    }
+    
+    // SoftRAID/FakeRAID
+    if (error.includes('softraid') || error.includes('fakeraid') || error.includes('dmraid')) {
+      return {
+        title: '💾 Special Disk Setup Detected',
+        message: 'Your Windows is on a special disk configuration that needs manual setup.',
+        solution: `Your system has advanced disk setup (RAID).
+
+Smart Auto-Map can't handle this automatically. Try "Manual Auto-Map" instead, or mount your Windows partition manually first.`,
+        technical: stderr
+      };
+    }
+    
+    // Generic mount failure
+    return {
+      title: '❌ Couldn\'t Mount Windows',
+      message: 'Something went wrong while trying to access your Windows partition.',
+      solution: `Try these simple fixes:
+• Restart your computer
+• Try "Manual Auto-Map" instead
+• Make sure Windows is installed and working`,
+      technical: stderr
+    };
+  };
+
+  const smartAutoMap = async () => {
+    setSmartAutoMapLoading(true);
+    pushLog('Starting Smart Auto-Map: Detecting Windows partitions...');
+    
+    try {
+      const resultStr = await invoke<string>('auto_mount_and_map', {
+        preferredMountBase: null,
+        username: null,
+      });
+      
+      // Parse the JSON response
+      let result: any;
+      try {
+        result = JSON.parse(resultStr);
+      } catch (e) {
+        pushLog('Smart Auto-Map failed: Invalid response format');
+        throw new Error('Invalid response from auto-mapping service');
+      }
+      
+      if (result.status === 'error') {
+        // Log the specific error
+        pushLog(`Smart Auto-Map failed: ${result.code} - ${result.message}`);
+        
+        // Handle different error types with specific messages
+        
+        if (result.code === 'spawn_pkexec_failed') {
+          setErrorDetails({
+            title: '🔐 Permission Helper Not Available',
+            message: 'The system permission helper isn\'t working right now.',
+            solution: `Try these simple fixes:
+• Restart the app
+• Try "Manual Auto-Map" instead
+• Restart your computer if the problem continues`,
+            technical: result.message
+          });
+          setErrorDialogOpen(true);
+          return;
+        } else if (result.code === 'mount_failed') {
+          const parsedError = parseWindowsPartitionError(result.stderr || '', result.stdout || '');
+          
+          // Show user-friendly error dialog instead of alert
+          setErrorDetails(parsedError);
+          setErrorDialogOpen(true);
+          
+          // Log technical details for troubleshooting
+          pushLog(`Mount failed - Technical details: ${parsedError.technical}`);
+          return; // Don't show the generic alert
+        } else if (result.code === 'no_windows_partitions') {
+          setErrorDetails({
+            title: '💿 No Windows Found',
+            message: 'Smart Auto-Map couldn\'t find Windows on your computer.',
+            solution: `This might be because:
+• You don't have Windows installed (need dual-boot)
+• Windows is on an external drive that's unplugged
+• Windows is already mounted somewhere else
+
+Try "Manual Auto-Map" if you know where Windows is located.`,
+            technical: 'No NTFS or exFAT partitions detected via lsblk'
+          });
+          setErrorDialogOpen(true);
+          return;
+        } else if (result.code === 'no_users_detected') {
+          setErrorDetails({
+            title: '👤 No Windows Users Found',
+            message: 'Found Windows, but couldn\'t find any user folders.',
+            solution: `This might be because:
+• This isn't the main Windows partition
+• Windows user folders are in a different location
+• The Windows installation is incomplete
+
+Try "Manual Auto-Map" and specify your Windows username manually.`,
+            technical: `Mounted at: ${result.mount_point}, but no Users folder found`
+          });
+          setErrorDialogOpen(true);
+          return;
+        } else if (result.code === 'no_mappings_found') {
+          setErrorDetails({
+            title: '📁 No Folders to Map',
+            message: `Found Windows user '${result.username}', but no folders to sync.`,
+            solution: `This might be because:
+• The Windows user doesn't have Desktop, Documents, etc. folders yet
+• The folders have different names
+• You need to create the folders in Windows first
+
+Try logging into Windows and creating the standard folders, then try again.`,
+            technical: `User: ${result.username}, Mount: ${result.mount_point}`
+          });
+          setErrorDialogOpen(true);
+          return;
+        }
+        
+        // Generic error fallback (only reached for unknown error codes)
+        setErrorDetails({
+          title: '❓ Something Went Wrong',
+          message: 'Smart Auto-Map ran into an unexpected problem.',
+          solution: `Try these simple fixes:
+• Try "Manual Auto-Map" instead
+• Restart the app
+• Restart your computer
+
+If this keeps happening, it might be a bug.`,
+          technical: JSON.stringify(result, null, 2)
+        });
+        setErrorDialogOpen(true);
+        return;
+      }
+      
+      if (result.status === 'ok') {
+        // Log success
+        pushLog(`Smart Auto-Map success: Mounted ${result.windows_partition.label || 'Windows partition'} at ${result.mount_point}, found ${result.mappings.length} mappings for user ${result.username}`);
+        
+        // Update the base mount point with the detected/mounted path
+        setBaseMount(result.mount_point);
+        
+        // Set the partition UUID if available
+        if (result.windows_partition?.uuid) {
+          setPartitionUuid(result.windows_partition.uuid);
+        }
+        
+        // Add the mappings
+        const newMappings = result.mappings.map((mapping: any) => ({
+          id: Date.now() + Math.random(),
+          src: mapping.windows_path,
+          target: mapping.linux_path,
+        }));
+        
+        setRows(prev => [...prev, ...newMappings]);
+        
+        // Show success message with details
+        const partitionInfo = result.windows_partition.label 
+          ? `${result.windows_partition.label} (${result.windows_partition.uuid.substring(0, 8)}...)`
+          : result.windows_partition.uuid.substring(0, 8) + '...';
+          
+        alert(`✅ Smart Auto-Map Successful!\n\n` +
+              `🔍 Detected: ${partitionInfo}\n` +
+              `📁 Mount Point: ${result.mount_point}\n` +
+              `👤 Windows User: ${result.username}\n` +
+              `🔗 Added ${result.mappings.length} folder mappings\n\n` +
+              `Next steps:\n` +
+              `• Review the mappings below\n` +
+              `• Click "Make permanent" to save to /etc/fstab\n` +
+              `• Your folders will be automatically synced!`);
+      }
+      
+    } catch (e: any) {
+      console.error('Smart auto-map error:', e);
+      const errorMsg = typeof e === 'string' ? e : (e.message || 'Failed to auto-detect and map Windows folders');
+      pushLog(`Smart Auto-Map error: ${errorMsg}`);
+      alert(`Smart Auto-Map Error:\n\n${errorMsg}\n\nTry using "Manual Auto-Map" if you know where your Windows partition is mounted.`);
+    } finally {
+      setSmartAutoMapLoading(false);
+    }
   };
   const refreshInstalledBlocks = async () => {
     try {
@@ -368,6 +676,36 @@ function App() {
 
   <Accordion sx={{ mb: 2 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="subtitle1">Auto-Map User Folders</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" gutterBottom>
+            Two ways to automatically map common user folders between Linux and Windows:
+          </Typography>
+          
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+            🚀 Smart Auto-Map (Recommended)
+          </Typography>
+          <Typography variant="body2" gutterBottom>
+            Automatically detects Windows partitions, mounts them if needed, and creates folder mappings in one click. 
+            No manual configuration required!
+          </Typography>
+          
+          <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+            ⚙️ Manual Auto-Map
+          </Typography>
+          <Typography variant="body2" gutterBottom>
+            For when you want more control - requires you to set the base mount point and optionally specify the Windows username.
+          </Typography>
+          
+          <Typography variant="body2" sx={{ mt: 2 }}>
+            <strong>Supported folders:</strong> Desktop, Documents, Downloads, Pictures, Music, Videos
+          </Typography>
+        </AccordionDetails>
+  </Accordion>
+
+  <Accordion sx={{ mb: 2 }}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle1">How to find your partition UUID</Typography>
         </AccordionSummary>
         <AccordionDetails>
@@ -388,7 +726,40 @@ blkid</code></pre>
           <Typography variant="h6">Mappings</Typography>
         </Grid>
         <Grid item>
-          <Button variant="contained" color="primary" onClick={addRow}>Add Mapping</Button>
+          <Grid container spacing={1}>
+            <Grid item>
+              <Button variant="contained" color="primary" onClick={addRow}>Add Mapping</Button>
+            </Grid>
+            <Grid item>
+              <Button 
+                variant="contained" 
+                color="success" 
+                onClick={smartAutoMap}
+                disabled={smartAutoMapLoading}
+              >
+                {smartAutoMapLoading ? (
+                  <>
+                    <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                    Detecting...
+                  </>
+                ) : (
+                  'Smart Auto-Map'
+                )}
+              </Button>
+            </Grid>
+            <Grid item>
+              <Button 
+                variant="outlined" 
+                color="secondary" 
+                onClick={() => {
+                  detectUserFolders();
+                  setAutoMappingOpen(true);
+                }}
+              >
+                Manual Auto-Map
+              </Button>
+            </Grid>
+          </Grid>
         </Grid>
       </Grid>
       <Grid container direction="column" spacing={1} sx={{ mb: 2 }}>
@@ -817,6 +1188,158 @@ blkid</code></pre>
               <Button onClick={()=>setApplyResultOpen(false)}>OK</Button>
             </DialogActions>
           </Dialog>
+
+          {/* Auto-mapping dialog */}
+          <Dialog open={autoMappingOpen} onClose={() => setAutoMappingOpen(false)} fullWidth maxWidth="md">
+            <DialogTitle>Manual Auto-Map User Folders</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" gutterBottom>
+                Automatically map common user folders between Linux and Windows. This will detect your Linux home folders and match them with Windows user folders.
+              </Typography>
+              
+              {detectedFolders.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                    Detected Linux Folders:
+                  </Typography>
+                  <ul>
+                    {detectedFolders.map((folder, idx) => (
+                      <li key={idx}>
+                        <code>{folder.linux_path}</code> {folder.exists_linux ? '✓' : '✗'}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              <TextField
+                fullWidth
+                label="Windows Username (optional)"
+                placeholder="e.g., John, Administrator"
+                value={windowsUsername}
+                onChange={(e) => setWindowsUsername(e.target.value)}
+                helperText="Leave empty to auto-detect. Required if auto-detection fails."
+                sx={{ mt: 2, mb: 2 }}
+              />
+
+              <Button
+                variant="outlined"
+                onClick={suggestFolderMappings}
+                disabled={autoMappingLoading || !baseMount}
+                fullWidth
+                sx={{ mb: 2 }}
+              >
+                {autoMappingLoading ? (
+                  <>
+                    <CircularProgress size={18} sx={{ mr: 1 }} />
+                    Scanning...
+                  </>
+                ) : (
+                  'Scan for Mappings'
+                )}
+              </Button>
+
+              {suggestedMappings.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    Found {suggestedMappings.length} folder mappings:
+                  </Typography>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Folder Type</TableCell>
+                        <TableCell>Linux Path</TableCell>
+                        <TableCell>Windows Path</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {suggestedMappings.map((mapping, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>{mapping.folder_type}</TableCell>
+                          <TableCell><code>{mapping.linux_path}</code></TableCell>
+                          <TableCell><code>{mapping.windows_path}</code></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
+
+              {suggestedMappings.length === 0 && baseMount && !autoMappingLoading && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                  No matching folders found. Make sure the Windows partition is mounted at the correct base path and contains a Users folder.
+                </Typography>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setAutoMappingOpen(false)}>Cancel</Button>
+              {suggestedMappings.length > 0 && (
+                <Button 
+                  variant="contained" 
+                  onClick={applyAutoMappings}
+                  color="primary"
+                >
+                  Add {suggestedMappings.length} Mappings
+                </Button>
+              )}
+            </DialogActions>
+          </Dialog>
+
+          {/* Error Details Dialog */}
+          <Dialog open={errorDialogOpen} onClose={() => setErrorDialogOpen(false)} fullWidth maxWidth="md">
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {errorDetails?.title || 'Error'}
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body1" gutterBottom>
+                {errorDetails?.message}
+              </Typography>
+              
+              <Paper variant="outlined" sx={{ p: 2, mt: 2, backgroundColor: 'action.hover' }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  💡 How to fix this:
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                  {errorDetails?.solution}
+                </Typography>
+              </Paper>
+
+              {errorDetails?.technical && (
+                <Accordion sx={{ mt: 2 }}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="subtitle2">🔧 Technical Details (for troubleshooting)</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Paper variant="outlined" sx={{ p: 1, backgroundColor: 'grey.100' }}>
+                      <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                        {errorDetails.technical}
+                      </Typography>
+                    </Paper>
+                    <Button 
+                      size="small" 
+                      onClick={() => navigator.clipboard.writeText(errorDetails.technical || '')}
+                      sx={{ mt: 1 }}
+                    >
+                      Copy Technical Details
+                    </Button>
+                  </AccordionDetails>
+                </Accordion>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setErrorDialogOpen(false)}>Close</Button>
+              <Button 
+                variant="outlined" 
+                onClick={() => {
+                  setErrorDialogOpen(false);
+                  setAutoMappingOpen(true);
+                }}
+              >
+                Try Manual Auto-Map
+              </Button>
+            </DialogActions>
+          </Dialog>
+
           <Paper variant="outlined" sx={{ p:2, mb:2 }}>
             <Grid container alignItems="center" justifyContent="space-between" sx={{ mb:2 }}>
               <Grid item><Typography variant="h6">Disks & Partitions</Typography></Grid>
@@ -866,7 +1389,40 @@ blkid</code></pre>
             <Grid container alignItems="center" justifyContent="space-between" sx={{ mb:2 }}>
               <Grid item><Typography variant="h6">Existing Mappings</Typography></Grid>
               <Grid item>
-                <Button variant="contained" onClick={addRow}>Add Mapping</Button>
+                <Grid container spacing={1}>
+                  <Grid item>
+                    <Button variant="contained" onClick={addRow}>Add Mapping</Button>
+                  </Grid>
+                  <Grid item>
+                    <Button 
+                      variant="contained" 
+                      color="success" 
+                      onClick={smartAutoMap}
+                      disabled={smartAutoMapLoading}
+                    >
+                      {smartAutoMapLoading ? (
+                        <>
+                          <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                          Detecting...
+                        </>
+                      ) : (
+                        'Smart Auto-Map'
+                      )}
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button 
+                      variant="outlined" 
+                      color="secondary" 
+                      onClick={() => {
+                        detectUserFolders();
+                        setAutoMappingOpen(true);
+                      }}
+                    >
+                      Manual Auto-Map
+                    </Button>
+                  </Grid>
+                </Grid>
               </Grid>
             </Grid>
             <Grid container direction="column" spacing={1}>

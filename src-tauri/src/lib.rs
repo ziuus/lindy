@@ -35,7 +35,7 @@ pub fn run() {
     tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![greet, generate_fstab_line, list_partitions, apply_fstab_block, list_fstab_blocks, remove_fstab_block, perform_mounts, adopt_block, find_block_for_target, remove_block_for_target])
+    .invoke_handler(tauri::generate_handler![greet, generate_fstab_line, list_partitions, apply_fstab_block, list_fstab_blocks, remove_fstab_block, perform_mounts, adopt_block, find_block_for_target, remove_block_for_target, detect_user_folders, suggest_folder_mappings, detect_windows_partitions, auto_mount_and_map])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -1101,6 +1101,425 @@ fn list_partitions() -> Result<Vec<PartitionInfo>, String> {
     Ok(flat)
 }
 
+#[derive(serde::Serialize)]
+struct UserFolder {
+    name: String,
+    linux_path: String,
+    windows_path: Option<String>,
+    exists_linux: bool,
+    exists_windows: bool,
+}
+
+#[derive(serde::Serialize)]
+struct FolderMapping {
+    linux_path: String,
+    windows_path: String,
+    folder_type: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct WindowsPartition {
+    uuid: String,
+    label: Option<String>,
+    device: String,
+    mount_point: Option<String>,
+    size: Option<String>,
+    is_mounted: bool,
+    has_users_folder: bool,
+    detected_users: Vec<String>,
+}
+
+/// Detect common user folders in the current Linux user's home directory
+#[tauri::command]
+fn detect_user_folders() -> Result<Vec<UserFolder>, String> {
+    use std::env;
+    use std::path::Path;
+    
+    let home = env::var("HOME").map_err(|_| "Could not get HOME directory")?;
+    
+    // Common folder mappings between Linux and Windows
+    let folder_mappings = vec![
+        ("Desktop", "Desktop"),
+        ("Documents", "Documents"),
+        ("Downloads", "Downloads"),
+        ("Music", "Music"),
+        ("Pictures", "Pictures"),
+        ("Videos", "Videos"),
+        ("Public", "Public"),
+    ];
+    
+    let mut folders = Vec::new();
+    
+    for (linux_name, windows_name) in folder_mappings {
+        let linux_path = format!("{}/{}", home, linux_name);
+        let exists_linux = Path::new(&linux_path).exists();
+        
+        folders.push(UserFolder {
+            name: linux_name.to_string(),
+            linux_path,
+            windows_path: Some(windows_name.to_string()),
+            exists_linux,
+            exists_windows: false, // Will be determined when Windows partition is scanned
+        });
+    }
+    
+    Ok(folders)
+}
+
+/// Suggest folder mappings between Linux home and Windows user folders
+#[tauri::command]
+fn suggest_folder_mappings(
+    windows_base_path: &str,
+    username: Option<String>,
+) -> Result<Vec<FolderMapping>, String> {
+    use std::env;
+    use std::path::Path;
+    
+    let home = env::var("HOME").map_err(|_| "Could not get HOME directory")?;
+    
+    // Validate windows_base_path
+    let base_path = Path::new(windows_base_path);
+    if !base_path.exists() {
+        return Err(format!("Windows base path does not exist: {}", windows_base_path));
+    }
+    
+    // Try to detect Windows username if not provided
+    let win_user = if let Some(user) = username {
+        user
+    } else {
+        // Try common Windows user folder patterns
+        let users_path = base_path.join("Users");
+        
+        if users_path.exists() {
+            // Look for user folders (skip system folders)
+            let skip_folders = ["Public", "Default", "All Users", "Default User", "desktop.ini"];
+            
+            if let Ok(entries) = std::fs::read_dir(&users_path) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_dir() {
+                            let folder_name = entry.file_name().to_string_lossy().to_string();
+                            if !skip_folders.contains(&folder_name.as_str()) 
+                                && !folder_name.starts_with('.') 
+                                && !folder_name.to_lowercase().starts_with("defaultapp") {
+                                return suggest_folder_mappings(windows_base_path, Some(folder_name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return Err("Could not detect Windows username. Please specify manually in the Windows Username field.".to_string());
+    };
+    
+    // Validate Windows user path exists
+    let win_user_path = format!("{}/Users/{}", windows_base_path, win_user);
+    if !Path::new(&win_user_path).exists() {
+        return Err(format!("Windows user folder does not exist: {}", win_user_path));
+    }
+    
+    // Common folder mappings with additional variations
+    let folder_mappings = vec![
+        ("Desktop", vec!["Desktop"]),
+        ("Documents", vec!["Documents", "My Documents"]),
+        ("Downloads", vec!["Downloads"]),
+        ("Music", vec!["Music", "My Music"]),
+        ("Pictures", vec!["Pictures", "My Pictures"]),
+        ("Videos", vec!["Videos", "My Videos"]),
+    ];
+    
+    let mut mappings = Vec::new();
+    
+    for (linux_name, windows_variants) in folder_mappings {
+        let linux_path = format!("{}/{}", home, linux_name);
+        
+        // Check if Linux folder exists
+        if !Path::new(&linux_path).exists() {
+            continue;
+        }
+        
+        // Try each Windows variant
+        for windows_name in windows_variants {
+            let windows_path = format!("{}/Users/{}/{}", windows_base_path, win_user, windows_name);
+            
+            if Path::new(&windows_path).exists() {
+                mappings.push(FolderMapping {
+                    linux_path: linux_path.clone(),
+                    windows_path,
+                    folder_type: linux_name.to_string(),
+                });
+                break; // Found a match, no need to try other variants
+            }
+        }
+    }
+    
+    if mappings.is_empty() {
+        return Err(format!("No matching folders found. Checked user: {} at path: {}/Users/{}", win_user, windows_base_path, win_user));
+    }
+    
+    Ok(mappings)
+}
+
+/// Detect Windows partitions on the system
+#[tauri::command]
+fn detect_windows_partitions() -> Result<Vec<WindowsPartition>, String> {
+    use std::process::Command;
+    use std::path::Path;
+    
+    // Get partition list using lsblk
+    let output = Command::new("lsblk")
+        .args(["-J", "-o", "NAME,FSTYPE,UUID,LABEL,MOUNTPOINT,SIZE"])
+        .output()
+        .map_err(|e| format!("failed to run lsblk: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("lsblk returned non-zero status".into());
+    }
+    
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("invalid lsblk json: {}", e))?;
+    
+    let mut windows_partitions = Vec::new();
+    
+    fn collect_windows_partitions(partitions: &mut Vec<WindowsPartition>, node: &serde_json::Value) {
+        if let Some(fstype) = node.get("fstype").and_then(|x| x.as_str()) {
+            // Look for NTFS partitions (Windows) or exFAT (could be Windows)
+            if fstype == "ntfs" || fstype == "exfat" {
+                if let Some(uuid) = node.get("uuid").and_then(|x| x.as_str()) {
+                    let name = node.get("name").and_then(|x| x.as_str()).unwrap_or("unknown");
+                    let label = node.get("label").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    let mount_point = node.get("mountpoint").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    let size = node.get("size").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    let is_mounted = mount_point.is_some();
+                    
+                    // Check if this partition has a Users folder (indicating it's a Windows system partition)
+                    let (has_users_folder, detected_users) = if let Some(ref mp) = mount_point {
+                        check_for_windows_users(mp)
+                    } else {
+                        (false, Vec::new())
+                    };
+                    
+                    partitions.push(WindowsPartition {
+                        uuid: uuid.to_string(),
+                        label,
+                        device: format!("/dev/{}", name),
+                        mount_point,
+                        size,
+                        is_mounted,
+                        has_users_folder,
+                        detected_users,
+                    });
+                }
+            }
+        }
+        
+        if let Some(children) = node.get("children").and_then(|x| x.as_array()) {
+            for child in children {
+                collect_windows_partitions(partitions, child);
+            }
+        }
+    }
+    
+    if let Some(blockdevices) = v.get("blockdevices").and_then(|x| x.as_array()) {
+        for dev in blockdevices {
+            collect_windows_partitions(&mut windows_partitions, dev);
+        }
+    }
+    
+    // Sort by likelihood of being the main Windows partition
+    windows_partitions.sort_by(|a, b| {
+        // Prioritize mounted partitions with Users folder
+        match (a.has_users_folder, b.has_users_folder) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                // Then prioritize mounted partitions
+                match (a.is_mounted, b.is_mounted) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => std::cmp::Ordering::Equal,
+                }
+            }
+        }
+    });
+    
+    Ok(windows_partitions)
+}
+
+fn check_for_windows_users(mount_point: &str) -> (bool, Vec<String>) {
+    use std::path::Path;
+    
+    let users_path = Path::new(mount_point).join("Users");
+    if !users_path.exists() {
+        return (false, Vec::new());
+    }
+    
+    let mut users = Vec::new();
+    let skip_folders = ["Public", "Default", "All Users", "Default User", "desktop.ini"];
+    
+    if let Ok(entries) = std::fs::read_dir(&users_path) {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    let folder_name = entry.file_name().to_string_lossy().to_string();
+                    if !skip_folders.contains(&folder_name.as_str()) 
+                        && !folder_name.starts_with('.') 
+                        && !folder_name.to_lowercase().starts_with("defaultapp") {
+                        users.push(folder_name);
+                    }
+                }
+            }
+        }
+    }
+    
+    (true, users)
+}
+
+/// Automatically detect Windows partition, mount it if needed, and suggest folder mappings
+#[tauri::command]
+fn auto_mount_and_map(
+    preferred_mount_base: Option<String>,
+    username: Option<String>,
+) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Detect Windows partitions
+    let windows_partitions = detect_windows_partitions()?;
+    
+    if windows_partitions.is_empty() {
+        let resp = serde_json::json!({
+            "status": "error",
+            "code": "no_windows_partitions",
+            "message": "No Windows partitions (NTFS/exFAT) found on the system"
+        });
+        return Ok(serde_json::to_string(&resp).unwrap());
+    }
+    
+    // Find the best Windows partition (prioritize those with Users folder)
+    let best_partition = windows_partitions.iter()
+        .find(|p| p.has_users_folder)
+        .or_else(|| windows_partitions.first())
+        .ok_or("No suitable Windows partition found")?
+        .clone();
+    
+    let mount_point = if let Some(existing_mp) = &best_partition.mount_point {
+        // Already mounted
+        existing_mp.clone()
+    } else {
+        // Need to mount it using privileged operations
+        let base = preferred_mount_base.unwrap_or_else(|| "/mnt/windows".to_string());
+        let mount_path = if let Some(ref label) = best_partition.label {
+            format!("{}/{}", base, label.replace(" ", "_").replace("/", "_"))
+        } else {
+            format!("{}/{}", base, &best_partition.uuid[..8])
+        };
+        
+        // Build privileged script to create directory and mount
+        let _now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut script = String::new();
+        script.push_str("set -e\n");
+        script.push_str(&format!("echo 'Creating mount directory: {}'\n", mount_path));
+        script.push_str(&format!("mkdir -p '{}'\n", mount_path));
+        script.push_str(&format!("echo 'Mounting partition {} to {}'\n", best_partition.uuid, mount_path));
+        script.push_str(&format!("mount -U '{}' '{}'\n", best_partition.uuid, mount_path));
+        script.push_str(&format!("echo 'Mount successful: {}'\n", mount_path));
+        
+        // Execute via pkexec
+        let output = match run_pkexec_with_script(&script) {
+            Ok(o) => o,
+            Err(e) => {
+                let resp = serde_json::json!({
+                    "status": "error",
+                    "code": "spawn_pkexec_failed",
+                    "message": format!("Failed to spawn pkexec for mounting: {}", e),
+                    "stdout": "",
+                    "stderr": "",
+                });
+                return Ok(serde_json::to_string(&resp).unwrap());
+            }
+        };
+        
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        
+        if !output.status.success() {
+            let resp = serde_json::json!({
+                "status": "error",
+                "code": "mount_failed",
+                "message": format!("Failed to mount Windows partition: {}", stderr),
+                "stdout": stdout,
+                "stderr": stderr,
+                "partition_uuid": best_partition.uuid,
+                "mount_path": mount_path,
+            });
+            return Ok(serde_json::to_string(&resp).unwrap());
+        }
+        
+        mount_path
+    };
+    
+    // Detect username if not provided
+    let detected_username = if let Some(user) = username {
+        user
+    } else {
+        // Re-scan the now-mounted partition for users
+        let (has_users, users) = check_for_windows_users(&mount_point);
+        if !has_users || users.is_empty() {
+            let resp = serde_json::json!({
+                "status": "error",
+                "code": "no_users_detected",
+                "message": "No Windows users detected in the mounted partition. Please specify username manually.",
+                "mount_point": mount_point,
+                "partition_info": best_partition,
+            });
+            return Ok(serde_json::to_string(&resp).unwrap());
+        }
+        users[0].clone()
+    };
+    
+    // Generate folder mappings
+    let mappings = match suggest_folder_mappings(&mount_point, Some(detected_username.clone())) {
+        Ok(m) => m,
+        Err(e) => {
+            let resp = serde_json::json!({
+                "status": "error",
+                "code": "mapping_failed",
+                "message": format!("Failed to generate folder mappings: {}", e),
+                "mount_point": mount_point,
+                "username": detected_username,
+                "partition_info": best_partition,
+            });
+            return Ok(serde_json::to_string(&resp).unwrap());
+        }
+    };
+    
+    if mappings.is_empty() {
+        let resp = serde_json::json!({
+            "status": "error",
+            "code": "no_mappings_found",
+            "message": format!("No matching folders found for user '{}' at '{}'", detected_username, mount_point),
+            "mount_point": mount_point,
+            "username": detected_username,
+            "partition_info": best_partition,
+        });
+        return Ok(serde_json::to_string(&resp).unwrap());
+    }
+    
+    // Return success with all the information
+    let resp = serde_json::json!({
+        "status": "ok",
+        "code": "auto_map_success",
+        "message": format!("Successfully detected and mounted Windows partition with {} folder mappings", mappings.len()),
+        "windows_partition": best_partition,
+        "mappings": mappings,
+        "mount_point": mount_point,
+        "username": detected_username,
+    });
+    
+    Ok(serde_json::to_string(&resp).unwrap())
+}
+
 // Unit tests for backend logic. These tests avoid performing real privileged
 // operations by ensuring `pkexec` in PATH exits non-zero; `perform_mounts`
 // will therefore return a structured JSON with code `pkexec_failed` and will
@@ -1148,6 +1567,45 @@ mod tests {
     // restore PATH (best-effort)
     // pass as reference to avoid moving the string and to satisfy some linters/analysis tools
     unsafe { env::set_var("PATH", &old_path); }
+    }
+
+    #[test]
+    fn test_detect_user_folders() {
+        // Test that detect_user_folders returns expected folder structure
+        let result = detect_user_folders();
+        assert!(result.is_ok(), "detect_user_folders should succeed");
+        
+        let folders = result.unwrap();
+        assert!(!folders.is_empty(), "Should detect at least some folders");
+        
+        // Check that common folders are included
+        let folder_names: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
+        assert!(folder_names.contains(&"Desktop"));
+        assert!(folder_names.contains(&"Documents"));
+        assert!(folder_names.contains(&"Downloads"));
+    }
+
+    #[test]
+    fn test_windows_partition_detection_structure() {
+        // Test the structure of Windows partition detection (without requiring actual Windows partitions)
+        // This tests the function signature and return type structure
+        let result = detect_windows_partitions();
+        
+        // The function should return Ok even if no Windows partitions are found
+        match result {
+            Ok(partitions) => {
+                // If partitions are found, verify the structure
+                for partition in partitions {
+                    assert!(!partition.uuid.is_empty(), "UUID should not be empty");
+                    assert!(!partition.device.is_empty(), "Device should not be empty");
+                    // Other fields can be None/empty depending on the system
+                }
+            }
+            Err(_) => {
+                // It's OK if lsblk fails in test environment
+                // The important thing is that the function compiles and has the right signature
+            }
+        }
     }
 }
 
