@@ -1,0 +1,61 @@
+name: Build and Release Tauri App
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Install Tauri CLI
+        run: pnpm dlx tauri@latest --version
+
+      - name: Build Tauri app (Linux)
+        run: pnpm tauri build
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lindy-linux
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lindy-linux
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.AppImage"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
