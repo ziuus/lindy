@@ -35,6 +35,11 @@ jobs:
       - name: Install Tauri CLI
         run: pnpm dlx tauri@latest --version
 
+      - name: Install Linux dependencies for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev squashfs-tools desktop-file-utils libayatana-appindicator3-dev librsvg2-dev patchelf appstream util-linux zsync dpkg fakeroot
+
       - name: Build Tauri app (Linux)
         run: pnpm tauri build
 
