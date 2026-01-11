@@ -1902,7 +1902,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lind-mount"
+name = "lindy"
 version = "0.1.0"
 dependencies = [
  "serde",

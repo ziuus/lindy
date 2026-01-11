@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -u
 
-# clear_lind_mounts.sh
-# Safely remove all lind-mount blocks from /etc/fstab, attempt to unmount bind targets
-# and remove metadata under /var/lib/lind-mount.
+# clear_lindy.sh
+# Safely remove all lindy blocks from /etc/fstab, attempt to unmount bind targets
+# and remove metadata under /var/lib/lindy.
 # Usage:
 #  sudo ./scripts/clear_lind_mounts.sh [--dry-run] [--force]
 # --dry-run: only print what would be done
@@ -30,20 +30,20 @@ if [[ $(id -u) -ne 0 ]]; then
 fi
 
 FSTAB=/etc/fstab
-META_DIR=/var/lib/lind-mount
-TMP_NEW=/tmp/lind-mount-newfst-$$.tmp
+META_DIR=/var/lib/lindy
+TMP_NEW=/tmp/lindy-newfst-$$.tmp
 NOW=$(date +%s)
-BACKUP=/etc/fstab.lind-mount.bak.${NOW}
+BACKUP=/etc/fstab.lindy.bak.${NOW}
 
-# Read /etc/fstab and find all lind-mount blocks
-mapfile -t BLOCK_IDS < <(awk '/# lind-mount BEGIN:/{print substr($0, index($0,"# lind-mount BEGIN:")+20)}' "$FSTAB" | sed 's/^ *//;s/ *$//')
+# Read /etc/fstab and find all lindy blocks
+mapfile -t BLOCK_IDS < <(awk '/# lindy BEGIN:/{print substr($0, index($0,"# lindy BEGIN:")+11)}' "$FSTAB" | sed 's/^ *//;s/ *$//')
 
 if [[ ${#BLOCK_IDS[@]} -eq 0 ]]; then
-  echo "No lind-mount blocks found in $FSTAB"
+  echo "No lindy blocks found in $FSTAB"
   exit 0
 fi
 
-echo "Found ${#BLOCK_IDS[@]} lind-mount block(s):"
+echo "Found ${#BLOCK_IDS[@]} lindy block(s):"
 for id in "${BLOCK_IDS[@]}"; do
   echo " - $id"
 done
@@ -54,7 +54,7 @@ declare -A BLOCK_PART_MP
 
 for id in "${BLOCK_IDS[@]}"; do
   # extract block content
-  block=$(awk "/# lind-mount BEGIN: ${id}/,/# lind-mount END: ${id}/" "$FSTAB")
+  block=$(awk "/# lindy BEGIN: ${id}/,/# lindy END: ${id}/" "$FSTAB")
   targets=()
   part_mp=""
   while IFS= read -r line; do
@@ -152,13 +152,13 @@ for id in "${BLOCK_IDS[@]}"; do
   fi
 done
 
-# Backup fstab and write new fstab without lind-mount blocks
+# Backup fstab and write new fstab without lindy blocks
 cp "$FSTAB" "$BACKUP"
 if awk '1' "$FSTAB" >/dev/null 2>&1; then
-  awk 'BEGIN{skip=0} /# lind-mount BEGIN:/{skip=1; next} /# lind-mount END:/{skip=0; next} {if(!skip) print $0}' "$FSTAB" > "$TMP_NEW"
+  awk 'BEGIN{skip=0} /# lindy BEGIN:/{skip=1; next} /# lindy END:/{skip=0; next} {if(!skip) print $0}' "$FSTAB" > "$TMP_NEW"
   mv "$TMP_NEW" "$FSTAB"
   sync
-  echo "Backed up original fstab to $BACKUP and wrote new fstab without lind-mount blocks"
+  echo "Backed up original fstab to $BACKUP and wrote new fstab without lindy blocks"
   echo "Running mount -a to refresh mounts"
   if mount -a; then
     echo "mount -a succeeded"

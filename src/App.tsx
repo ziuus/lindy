@@ -920,7 +920,7 @@ blkid</code></pre>
               // Build fstab block for all mappings
               const id = Math.random().toString(36).slice(2, 10);
               const lines: string[] = [];
-              lines.push(`# lind-mount BEGIN: ${id}`);
+              lines.push(`# lindy BEGIN: ${id}`);
               if (!skipPartition && partitionUuid && partitionUuid.trim() !== '') {
                 lines.push(`UUID=${partitionUuid} ${baseMount} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=10 0 2`);
               }
@@ -929,7 +929,7 @@ blkid</code></pre>
                 lines.push(`${r.src} ${r.target} none bind 0 0`);
                 targets.push(r.target as string);
               });
-              lines.push(`# lind-mount END: ${id}`);
+              lines.push(`# lindy END: ${id}`);
               const block = lines.join('\n') + '\n';
                 try {
                 setApplyInProgress(true);
@@ -999,7 +999,7 @@ blkid</code></pre>
             </Grid>
           </Grid>
           {installedBlocks.length === 0 && (
-            <Typography variant="body2" color="text.secondary">No persistent mounts installed via lind-mount.</Typography>
+            <Typography variant="body2" color="text.secondary">No persistent mounts installed via lindy.</Typography>
           )}
           {installedBlocks.map(b => (
             <Paper key={b.id} variant="outlined" sx={{ p:1, mb:1 }}>
@@ -1067,7 +1067,7 @@ blkid</code></pre>
                   } else if (parsed && parsed.status === 'error') {
                     if (parsed.code === 'spawn_pkexec_failed') {
                       setOpResultMessage('Elevation helper (pkexec) not available. Run the following sudo command as root:');
-                      setOpResultHint(`sudo sh -c "cp /etc/fstab /etc/fstab.lind-mount.manual.bak.$(date +%s) && sed -e '/^# lind-mount BEGIN: ${removeDialogId}/, /^# lind-mount END: ${removeDialogId}/d' /etc/fstab > /tmp/fstab.clean.$$ && cp /tmp/fstab.clean.$$ /etc/fstab && sync && mount -a"`);
+                      setOpResultHint(`sudo sh -c "cp /etc/fstab /etc/fstab.lindy.manual.bak.$(date +%s) && sed -e '/^# lindy BEGIN: ${removeDialogId}/, /^# lindy END: ${removeDialogId}/d' /etc/fstab > /tmp/fstab.clean.$$ && cp /tmp/fstab.clean.$$ /etc/fstab && sync && mount -a"`);
                       setPendingForceId(null);
                     } else if (parsed.code === 'pkexec_failed') {
                       // pkexec ran but returned non-zero; it may have printed stderr with hints (busy etc)
@@ -1105,7 +1105,7 @@ blkid</code></pre>
             <DialogTitle>Adopt existing mapping</DialogTitle>
             <DialogContent>
               <Typography variant="body2" gutterBottom>
-                The fstab contains an existing lind-mount block that matches your requested target. Do you want to adopt it so the app can manage it?
+                The fstab contains an existing lindy block that matches your requested target. Do you want to adopt it so the app can manage it?
               </Typography>
               <Typography variant="caption">Block ID: <code>{adoptInfo?.id}</code></Typography>
               <pre className="fstab-preview" style={{ maxHeight: 360, overflow: 'auto' }}>

@@ -12,7 +12,7 @@ fn run_pkexec_with_script(script: &str) -> Result<std::process::Output, std::io:
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let pid = std::process::id();
-    let path = format!("/tmp/lind-mount-pkexec-{}-{}.sh", pid, now);
+    let path = format!("/tmp/lindy-pkexec-{}-{}.sh", pid, now);
     fs::write(&path, script)?;
     // make it executable (0700)
     let mut perms = fs::metadata(&path)?.permissions();
@@ -72,7 +72,7 @@ fn perform_mounts(
                     if let Some(first_nl) = new_block.find('\n') {
                         let first = &new_block[..first_nl];
                         let rest = &new_block[first_nl+1..];
-                        if first.contains("# lind-mount BEGIN:") {
+                        if first.contains("# lindy BEGIN:") {
                             new_block = format!("{}\n{}\n{}", first, partition_line, rest);
                         } else {
                             new_block = format!("{}\n{}", partition_line, new_block);
@@ -87,7 +87,7 @@ fn perform_mounts(
 
     // write temp file
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let tmp_path = format!("/tmp/lind-mount-fstab-{}-{}.tmp", id, now);
+    let tmp_path = format!("/tmp/lindy-fstab-{}-{}.tmp", id, now);
     match fs::File::create(&tmp_path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(new_block.as_bytes()) {
@@ -102,7 +102,7 @@ fn perform_mounts(
     // the privileged persistence step (pkexec append to /etc/fstab) fails.
     // We'll update this metadata after attempting persistence to mark whether
     // it was actually written to /etc/fstab (persisted=true).
-    let meta_dir = "/var/lib/lind-mount";
+    let meta_dir = "/var/lib/lindy";
     let _ = fs::create_dir_all(meta_dir);
     let meta_path = format!("{}/{}.json", meta_dir, id);
     let initial_meta = serde_json::json!({
@@ -134,7 +134,7 @@ fn perform_mounts(
     }
 
     // build privileged shell command
-    let backup = format!("/etc/fstab.lind-mount.bak.{}", now);
+    let backup = format!("/etc/fstab.lindy.bak.{}", now);
     // We'll attempt mount -a; on failure we'll collect fuser output for each target and optionally retry with lazy unmount
     let mut shell = String::new();
     shell.push_str("set -e\n");
@@ -260,7 +260,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
     let mut block_lines: Vec<String> = Vec::new();
     let mut targets: Vec<String> = Vec::new();
     for line in content.lines() {
-        if line.contains(&format!("# lind-mount BEGIN: {}", id)) {
+        if line.contains(&format!("# lindy BEGIN: {}", id)) {
             in_block = true;
             found = true;
             block_lines.push(line.to_string());
@@ -268,7 +268,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
         }
         if in_block {
             block_lines.push(line.to_string());
-            if line.contains(&format!("# lind-mount END: {}", id)) {
+            if line.contains(&format!("# lindy END: {}", id)) {
                 in_block = false;
                 break;
             }
@@ -289,7 +289,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
         "targets": targets,
         "installed_at": now,
     });
-    let meta_dir = "/var/lib/lind-mount";
+    let meta_dir = "/var/lib/lindy";
     let _ = fs::create_dir_all(meta_dir);
     let meta_path = format!("{}/{}.json", meta_dir, id);
     fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default()).map_err(|e| format!("failed to write metadata: {}", e))?;
@@ -317,11 +317,11 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
     // This avoids creating duplicate mountpoints which cause duplicate icons.
     if !targets.is_empty() {
         // Read /etc/fstab once and scan for any existing references to the requested targets.
-        // If a matching line belongs to a lind-mount marked block, and metadata for that block
+        // If a matching line belongs to a lindy marked block, and metadata for that block
         // is missing, automatically create metadata (adopt) instead of failing. If the matching
-        // line is not inside a lind-mount block, reject to avoid creating duplicate targets.
+        // line is not inside a lindy block, reject to avoid creating duplicate targets.
         if let Ok(fstab_str) = std::fs::read_to_string("/etc/fstab") {
-            // We'll iterate lines and keep track of whether we're inside a lind-mount block
+            // We'll iterate lines and keep track of whether we're inside a lindy block
             // and what the current block id is so we can adopt it if needed.
             let mut current_block_id: Option<String> = None;
             // Map of block id -> Vec<target lines> (for later metadata creation)
@@ -330,15 +330,15 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
             let mut block_texts: HashMap<String, Vec<String>> = HashMap::new();
 
             for line in fstab_str.lines() {
-                if let Some(pos) = line.find("# lind-mount BEGIN:") {
-                    let id = line[pos + "# lind-mount BEGIN:".len()..].trim().to_string();
+                if let Some(pos) = line.find("# lindy BEGIN:") {
+                    let id = line[pos + "# lindy BEGIN:".len()..].trim().to_string();
                     current_block_id = Some(id.clone());
                     block_texts.entry(id.clone()).or_default().push(line.to_string());
                     continue;
                 }
                 if let Some(ref id) = current_block_id {
                     block_texts.entry(id.clone()).or_default().push(line.to_string());
-                    if line.contains("# lind-mount END:") {
+                    if line.contains("# lindy END:") {
                         current_block_id = None;
                         continue;
                     }
@@ -365,7 +365,7 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
                 }
                 if let Some(block_id) = found_in_block {
                     // If metadata already exists for this block, treat as duplicate/managed
-                    let meta_dir = "/var/lib/lind-mount";
+                    let meta_dir = "/var/lib/lindy";
                     let meta_path = format!("{}/{}.json", meta_dir, block_id);
                     if std::path::Path::new(&meta_path).exists() {
                         return Err(format!("target {} already managed by app (metadata {}).", t, meta_path));
@@ -386,7 +386,7 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
                     }
                 }
 
-                // Not found inside a lind-mount block: check raw /etc/fstab lines for exact target
+                // Not found inside a lindy block: check raw /etc/fstab lines for exact target
                 for line in fstab_str.lines() {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
@@ -399,7 +399,7 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
         }
 
         // Check metadata dir for existing managed targets (unchanged)
-        let meta_dir = "/var/lib/lind-mount";
+        let meta_dir = "/var/lib/lindy";
         if let Ok(entries) = std::fs::read_dir(meta_dir) {
             for e in entries.flatten() {
                 if let Ok(s) = std::fs::read_to_string(e.path()) {
@@ -433,7 +433,7 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
 
     // Create a temp file in /tmp
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let tmp_path = format!("/tmp/lind-mount-fstab-{}-{}.tmp", id, now);
+    let tmp_path = format!("/tmp/lindy-fstab-{}-{}.tmp", id, now);
     match fs::File::create(&tmp_path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(block.as_bytes()) {
@@ -445,12 +445,12 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
     }
 
     // Build the privileged shell command: backup fstab, append temp file, run mount -a
-    let backup = format!("/etc/fstab.lind-mount.bak.{}", now);
+    let backup = format!("/etc/fstab.lindy.bak.{}", now);
     let cmd = format!("cp /etc/fstab {backup} && cat {tmp} >> /etc/fstab && mount -a", backup = backup, tmp = tmp_path);
 
     // Execute via pkexec so a polkit prompt appears
     // Log the command for debugging (append-only)
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
         let _ = writeln!(f, "[{}] apply_fstab_block id={} cmd=---\n{}---", now, id, cmd);
         Ok(())
     });
@@ -475,14 +475,14 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
         let _ = writeln!(f, "[{}] apply_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
         Ok(())
     });
 
     if output.status.success() {
         // Write metadata for this install so we can manage it later
-        let meta_dir = "/var/lib/lind-mount";
+        let meta_dir = "/var/lib/lindy";
         let _ = fs::create_dir_all(meta_dir);
         let meta_path = format!("{}/{}.json", meta_dir, id);
         let meta = serde_json::json!({
@@ -521,7 +521,7 @@ struct FstabBlock {
     managed: bool,
 }
 
-/// Scan /etc/fstab for lind-mount marked blocks and return them.
+/// Scan /etc/fstab for lindy marked blocks and return them.
 #[tauri::command]
 fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
     use std::fs;
@@ -543,16 +543,16 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
 
         // First collect blocks found in /etc/fstab
         while let Some(line) = lines.next() {
-            if let Some(pos) = line.find("# lind-mount BEGIN:") {
+            if let Some(pos) = line.find("# lindy BEGIN:") {
                 // extract id
-                let id = line[pos + "# lind-mount BEGIN:".len()..].trim().to_string();
+                let id = line[pos + "# lindy BEGIN:".len()..].trim().to_string();
                 let mut block_lines = Vec::new();
                 block_lines.push(line.to_string());
                 let mut targets = Vec::new();
                 // collect until END
                 for l in &mut lines {
                     block_lines.push(l.to_string());
-                    if l.contains("# lind-mount END:") {
+                    if l.contains("# lindy END:") {
                         break;
                     }
                     // detect bind lines: format: <src> <target> none bind 0 0
@@ -569,7 +569,7 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
     }
 
     // Now read metadata directory to mark managed blocks and include metadata-only entries
-    let meta_dir = "/var/lib/lind-mount";
+    let meta_dir = "/var/lib/lindy";
     if let Ok(entries) = fs::read_dir(meta_dir) {
         for e in entries.flatten() {
             if let Ok(s) = fs::read_to_string(e.path()) {
@@ -601,7 +601,7 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
     Ok(blocks)
 }
 
-/// Find the lind-mount block id (if any) that contains the given target path.
+/// Find the lindy block id (if any) that contains the given target path.
 /// Returns Some(id) when found, or None when no matching block exists.
 #[tauri::command]
 fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
@@ -621,11 +621,11 @@ fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
     if let Some(content) = content_opt {
         let mut lines = content.lines();
         while let Some(line) = lines.next() {
-            if let Some(pos) = line.find("# lind-mount BEGIN:") {
-                let id = line[pos + "# lind-mount BEGIN:".len()..].trim().to_string();
+            if let Some(pos) = line.find("# lindy BEGIN:") {
+                let id = line[pos + "# lindy BEGIN:".len()..].trim().to_string();
                 // collect until END
                 for l in &mut lines {
-                    if l.contains("# lind-mount END:") {
+                    if l.contains("# lindy END:") {
                         break;
                     }
                     let parts: Vec<&str> = l.split_whitespace().collect();
@@ -640,7 +640,7 @@ fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
     }
 
     // check metadata directory as fallback
-    let meta_dir = "/var/lib/lind-mount";
+    let meta_dir = "/var/lib/lindy";
     if let Ok(entries) = fs::read_dir(meta_dir) {
         for e in entries.flatten() {
             if let Ok(s) = fs::read_to_string(e.path()) {
@@ -696,7 +696,7 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let tgt_esc = shell_escape_single(target);
-    let newtmp = format!("/tmp/lind-mount-newfst-{}-{}.tmp", "by-target", now);
+    let newtmp = format!("/tmp/lindy-newfst-{}-{}.tmp", "by-target", now);
 
     // Build a single privileged shell script that:
     // 1) finds the block id that contains the given target
@@ -709,12 +709,12 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     // find id containing the target
     cmd.push_str("id=$(awk -v t=");
     cmd.push_str(&tgt_esc);
-    cmd.push_str(" 'BEGIN{block=0;id=\"\"} /^# lind-mount BEGIN: /{id=$0; sub(/^.*BEGIN: /,\"\", id); block=1; next} /^# lind-mount END: /{block=0; next} block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ && $2==t {print id; exit}' /etc/fstab)\n");
+    cmd.push_str(" 'BEGIN{block=0;id=\"\"} /^# lindy BEGIN: /{id=$0; sub(/^.*BEGIN: /,\"\", id); block=1; next} /^# lindy END: /{block=0; next} block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ && $2==t {print id; exit}' /etc/fstab)\n");
 
     cmd.push_str("if [ -z \"$id\" ]; then echo '{\"status\":\"error\",\"code\":\"not_found\",\"message\":\"no managed block found for target\"}'; exit 5; fi\n");
 
     // collect bind targets into tmp file
-    cmd.push_str("awk -v id=\"$id\" 'BEGIN{in_block=0} $0 ~ (\"# lind-mount BEGIN: \" id) {in_block=1; next} $0 ~ (\"# lind-mount END: \" id) {in_block=0; next} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {print $2}' /etc/fstab > /tmp/lind_targets.$id\n");
+    cmd.push_str("awk -v id=\"$id\" 'BEGIN{in_block=0} $0 ~ (\"# lindy BEGIN: \" id) {in_block=1; next} $0 ~ (\"# lindy END: \" id) {in_block=0; next} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {print $2}' /etc/fstab > /tmp/lind_targets.$id\n");
 
     // unmount targets
     if force {
@@ -724,18 +724,18 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     }
 
     // create new fstab without the block
-    cmd.push_str("awk -v id=\"$id\" 'BEGIN{skip=0} $0 ~ (\"# lind-mount BEGIN: \" id) {skip=1; next} $0 ~ (\"# lind-mount END: \" id) {skip=0; next} { if(!skip) print $0 }' /etc/fstab > ");
+    cmd.push_str("awk -v id=\"$id\" 'BEGIN{skip=0} $0 ~ (\"# lindy BEGIN: \" id) {skip=1; next} $0 ~ (\"# lindy END: \" id) {skip=0; next} { if(!skip) print $0 }' /etc/fstab > ");
     cmd.push_str(&newtmp);
     cmd.push_str("\n");
 
     cmd.push_str(&format!(
-        "cp /etc/fstab /etc/fstab.lind-mount.bak.{now} && mv {new} /etc/fstab && sync && mount -a\n",
+        "cp /etc/fstab /etc/fstab.lindy.bak.{now} && mv {new} /etc/fstab && sync && mount -a\n",
         now = now,
         new = newtmp
     ));
 
     // Log command
-    let _ = fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+    let _ = fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
         let _ = writeln!(f, "[{}] remove_block_for_target target={} cmd=---\n{}---", now, target, cmd);
         Ok(())
     });
@@ -751,7 +751,7 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let code = output.status.code();
 
-    let _ = fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+    let _ = fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
         let _ = writeln!(f, "[{}] remove_block_for_target target={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, target, code, stdout, stderr);
         Ok(())
     });
@@ -759,7 +759,7 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     if output.status.success() {
         // remove metadata file if present
         // attempt to infer id from stdout? but safer to remove any metadata that contains the target
-        if let Ok(entries) = fs::read_dir("/var/lib/lind-mount") {
+        if let Ok(entries) = fs::read_dir("/var/lib/lindy") {
             for e in entries.flatten() {
                 if let Ok(s) = fs::read_to_string(e.path()) {
                     if s.contains(target) {
@@ -799,13 +799,13 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         let mut targets: Vec<String> = Vec::new();
 
         for line in content.lines() {
-            if line.contains(&format!("# lind-mount BEGIN: {}", id)) {
+            if line.contains(&format!("# lindy BEGIN: {}", id)) {
                 in_block = true;
                 found = true;
                 continue;
             }
             if in_block {
-                if line.contains(&format!("# lind-mount END: {}", id)) {
+                if line.contains(&format!("# lindy END: {}", id)) {
                     in_block = false;
                     continue;
                 }
@@ -829,7 +829,7 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         }
 
         // Build temp new fstab
-        let newfst = format!("/tmp/lind-mount-newfst-{}-{}.tmp", id, now);
+        let newfst = format!("/tmp/lindy-newfst-{}-{}.tmp", id, now);
         fs::write(&newfst, out_lines.join("\n") + "\n").map_err(|e| format!("failed to write new fstab temp: {}", e))?;
 
         // helper to shell-escape single-quoted string safely
@@ -870,12 +870,12 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         let mut partition_mountpoint: Option<String> = None;
         let mut in_b = false;
         for l in content.lines() {
-            if l.contains(&format!("# lind-mount BEGIN: {}", id)) {
+            if l.contains(&format!("# lindy BEGIN: {}", id)) {
                 in_b = true;
                 continue;
             }
             if in_b {
-                if l.contains(&format!("# lind-mount END: {}", id)) {
+                if l.contains(&format!("# lindy END: {}", id)) {
                     break;
                 }
                 let trimmed = l.trim();
@@ -904,12 +904,12 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
             }
         }
 
-        let backup = format!("/etc/fstab.lind-mount.bak.{}", now);
+        let backup = format!("/etc/fstab.lindy.bak.{}", now);
         cmd.push_str(&format!("cp /etc/fstab {backup} && mv {new} /etc/fstab && sync && mount -a\n", backup = backup, new = newfst));
 
         // Run via pkexec so polkit prompt appears
         // Log command for debugging
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
             let _ = writeln!(f, "[{}] remove_fstab_block id={} cmd=---\n{}---", now, id, cmd);
             Ok(())
         });
@@ -929,18 +929,18 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         };
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
             let _ = writeln!(f, "[{}] remove_fstab_block (pkexec-branch) id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
             Ok(())
         });
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
             let _ = writeln!(f, "[{}] remove_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
             Ok(())
         });
 
         if output.status.success() {
             // remove metadata file if present
-            let meta_path = format!("/var/lib/lind-mount/{}.json", id);
+            let meta_path = format!("/var/lib/lindy/{}.json", id);
             let _ = fs::remove_file(&meta_path);
             let resp = serde_json::json!({
                 "status": "ok",
@@ -962,13 +962,13 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         }
     } else {
         // Could not read /etc/fstab locally; build a privileged shell to extract and remove the block entirely under pkexec.
-        let newtmp = format!("/tmp/lind-mount-newfst-{}-{}.tmp", id, now);
+        let newtmp = format!("/tmp/lindy-newfst-{}-{}.tmp", id, now);
     // AWK script to print bind targets between markers (ensure trailing newline so concatenation with subsequent shell code is safe)
     // Use a non-reserved variable name `in_block` (some awk implementations treat `in` as the in-operator)
-    let awk_targets = format!(r#"awk 'BEGIN{{in_block=0}} $0 ~ /^# lind-mount BEGIN: {id}$/{{in_block=1; next}} $0 ~ /^# lind-mount END: {id}$/{{in_block=0; next}} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {{ print $2 }}' /etc/fstab > /tmp/lind_targets.{id}
+    let awk_targets = format!(r#"awk 'BEGIN{{in_block=0}} $0 ~ /^# lindy BEGIN: {id}$/{{in_block=1; next}} $0 ~ /^# lindy END: {id}$/{{in_block=0; next}} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {{ print $2 }}' /etc/fstab > /tmp/lind_targets.{id}
 "#, id = id);
         // AWK script to create new fstab without the block
-        let awk_newfst = format!("awk 'BEGIN{{skip=0}} $0 ~ /^# lind-mount BEGIN: {id}$/{{skip=1; next}} $0 ~ /^# lind-mount END: {id}$/{{skip=0; next}} {{ if(!skip) print $0 }}' /etc/fstab > {newtmp}", id = id, newtmp = newtmp);
+        let awk_newfst = format!("awk 'BEGIN{{skip=0}} $0 ~ /^# lindy BEGIN: {id}$/{{skip=1; next}} $0 ~ /^# lindy END: {id}$/{{skip=0; next}} {{ if(!skip) print $0 }}' /etc/fstab > {newtmp}", id = id, newtmp = newtmp);
 
         let mut cmd = String::new();
         cmd.push_str("set -e\n");
@@ -976,10 +976,10 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         // unmount targets read from file
         cmd.push_str(&format!("for t in $(cat /tmp/lind_targets.{id} 2>/dev/null || true); do echo Attempt umount $t; if umount \"$t\"; then echo umount $t ok; else echo umount $t failed, trying lazy; umount -l \"$t\" || true; fi; done\n", id = id));
         cmd.push_str(&awk_newfst);
-        cmd.push_str(&format!("cp /etc/fstab /etc/fstab.lind-mount.bak.{now} && mv {newtmp} /etc/fstab && sync && mount -a\n", now = now, newtmp = newtmp));
+        cmd.push_str(&format!("cp /etc/fstab /etc/fstab.lindy.bak.{now} && mv {newtmp} /etc/fstab && sync && mount -a\n", now = now, newtmp = newtmp));
 
         // Log the constructed privileged command for debugging (append-only)
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lind-mount-debug.log").and_then(|mut f| {
+        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
             let _ = writeln!(f, "[{}] remove_fstab_block (pkexec-branch) id={} cmd=---\n{}---", now, id, cmd);
             Ok(())
         });
@@ -1002,7 +1002,7 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
-            let meta_path = format!("/var/lib/lind-mount/{}.json", id);
+            let meta_path = format!("/var/lib/lindy/{}.json", id);
             let _ = fs::remove_file(&meta_path);
             let resp = serde_json::json!({
                 "status": "ok",
@@ -1523,7 +1523,7 @@ fn auto_mount_and_map(
 // Unit tests for backend logic. These tests avoid performing real privileged
 // operations by ensuring `pkexec` in PATH exits non-zero; `perform_mounts`
 // will therefore return a structured JSON with code `pkexec_failed` and will
-// not write metadata under `/var/lib/lind-mount`.
+// not write metadata under `/var/lib/lindy`.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1550,7 +1550,7 @@ mod tests {
         let new_path = format!("{}:{}", tmpdir.display(), old_path);
     unsafe { env::set_var("PATH", &new_path); }
 
-        let block = "# lind-mount BEGIN: testid\n/dev/fake /mnt/fake auto defaults 0 2\n# lind-mount END: testid\n";
+        let block = "# lindy BEGIN: testid\n/dev/fake /mnt/fake auto defaults 0 2\n# lindy END: testid\n";
         let id = "testid";
         let targets = vec!["/mnt/fake".to_string()];
 

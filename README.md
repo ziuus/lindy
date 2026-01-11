@@ -1,4 +1,4 @@
-# Lind-Mount
+# Lindy
 
 > *"Dual-boot made simple. One click to sync your Windows and Linux folders."*
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Lind-Mount simplifies filesystem mount management for Linux users in dual-boot environments, making it easy to access Windows partitions and user folders.
+Lindy simplifies filesystem mount management for Linux users in dual-boot environments, making it easy to access Windows partitions and user folders.
 
 ## Key Features
 
@@ -70,4 +70,4 @@ This project is licensed under the MIT License.
 
 ---
 
-*Lind-Mount: Simplifying Linux mount management for the modern desktop user.*
+*Lindy: Simplifying Linux mount management for the modern desktop user.*

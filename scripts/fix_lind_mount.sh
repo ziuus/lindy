@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# fix_lind_mount.sh
-# Rewrites /etc/fstab replacing any existing lind-mount block with
+# fix_lindy.sh
+# Rewrites /etc/fstab replacing any existing lindy block with
 # a corrected block, runs mount -a and writes metadata. Designed to be
 # run as root (we'll still use sudo for safety where appropriate).
 
@@ -16,15 +16,15 @@ sudo cp /etc/fstab "$BACKUP"
 
 CLEAN=/tmp/fstab.cleaned.${ID}
 
-echo "Removing any existing lind-mount block for $ID from /etc/fstab"
+echo "Removing any existing lindy block for $ID from /etc/fstab"
 # Ensure the redirection is performed by a root shell. Use sudo sh -c for redirection.
-sudo sh -c "awk -v id=\"$ID\" 'BEGIN{skip=0} index(\$0, \"# lind-mount BEGIN: \" id){skip=1; next} index(\$0, \"# lind-mount END: \" id){skip=0; next} { if(!skip) print \$0 }' /etc/fstab > '$CLEAN'"
+sudo sh -c "awk -v id=\"$ID\" 'BEGIN{skip=0} index(\$0, \"# lindy BEGIN: \" id){skip=1; next} index(\$0, \"# lindy END: \" id){skip=0; next} { if(!skip) print \$0 }' /etc/fstab > '$CLEAN'"
 
-echo "Appending corrected lind-mount block for $ID to $CLEAN"
+echo "Appending corrected lindy block for $ID to $CLEAN"
 sudo sh -c "cat >> '$CLEAN' <<'EOF'
-# lind-mount BEGIN: $ID
+# lindy BEGIN: $ID
 $CORRECT_SRC $TARGET none bind 0 0
-# lind-mount END: $ID
+# lindy END: $ID
 EOF"
 
 echo "Installing cleaned fstab"
@@ -45,28 +45,28 @@ else
 fi
 
 # write metadata
-sudo mkdir -p /var/lib/lind-mount
+sudo mkdir -p /var/lib/lindy
 NOW=$(date +%s)
-sudo sh -c "cat > /var/lib/lind-mount/${ID}.json <<'JSON'
+sudo sh -c "cat > /var/lib/lindy/${ID}.json <<'JSON'
 {
   \"id\": \"${ID}\",
-  \"block\": \"# lind-mount BEGIN: ${ID}\\n${CORRECT_SRC} ${TARGET} none bind 0 0\\n# lind-mount END: ${ID}\\n\",
+  \"block\": \"# lindy BEGIN: ${ID}\\n${CORRECT_SRC} ${TARGET} none bind 0 0\\n# lindy END: ${ID}\\n\",
   \"targets\": [\"${TARGET}\"],
   \"installed_at\": ${NOW},
   \"persisted\": true
 }
 JSON"
 
-echo "WROTE /var/lib/lind-mount/${ID}.json"
+echo "WROTE /var/lib/lindy/${ID}.json"
 
 # verification
 echo
 echo "--- /etc/fstab excerpt for $ID ---"
-sudo awk "/# lind-mount BEGIN: ${ID}/,/# lind-mount END: ${ID}/" /etc/fstab || true
+sudo awk "/# lindy BEGIN: ${ID}/,/# lindy END: ${ID}/" /etc/fstab || true
 
 echo
 echo "--- metadata ---"
-sudo cat /var/lib/lind-mount/${ID}.json || true
+sudo cat /var/lib/lindy/${ID}.json || true
 
 echo
 echo "--- findmnt for $TARGET ---"
