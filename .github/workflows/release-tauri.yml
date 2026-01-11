@@ -33,7 +33,7 @@ jobs:
         run: pnpm install
 
       - name: Install Tauri CLI
-        run: pnpm dlx tauri@latest --version
+        run: pnpm dlx @tauri-apps/cli@latest --version
 
       - name: Install Linux dependencies for Tauri
         run: |
