@@ -38,7 +38,7 @@ jobs:
       - name: Install Linux dependencies for Tauri
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libsoup-3.0-dev build-essential curl wget file libssl-dev libgtk-3-dev squashfs-tools desktop-file-utils libayatana-appindicator3-dev librsvg2-dev patchelf appstream util-linux zsync dpkg fakeroot
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev squashfs-tools desktop-file-utils libayatana-appindicator3-dev librsvg2-dev patchelf appstream util-linux zsync dpkg fakeroot
 
       - name: Build Tauri app (Linux)
         run: pnpm tauri build
