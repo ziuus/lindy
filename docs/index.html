@@ -7,16 +7,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>Lindy</h1>
-    <p>Dual-boot made simple. One click to sync your Windows and Linux folders.</p>
-    <nav>
-      <a href="#features">Features</a>
-      <a href="#downloads">Download</a>
-      <a href="#screenshots">Screenshots</a>
-      <a href="#docs">Docs</a>
-      <a href="https://github.com/your-username/lindy/releases" target="_blank">GitHub Releases</a>
-    </nav>
+  <header class="hero">
+    <div class="hero-content">
+      <img src="logo.svg" alt="Lindy Logo" class="logo" onerror="this.style.display='none'" />
+      <h1>Lindy</h1>
+      <p class="subtitle">Dual-boot made simple.<br>One click to sync your Windows and Linux folders.</p>
+      <a class="download-btn big" href="https://github.com/your-username/lindy/releases" target="_blank">⬇️ Download Latest Release</a>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#docs">Docs</a>
+        <a href="https://github.com/your-username/lindy/releases" target="_blank">GitHub Releases</a>
+      </nav>
+    </div>
   </header>
   <main>
     <section id="overview">
@@ -25,17 +28,30 @@
     </section>
     <section id="features">
       <h2>Key Features</h2>
-      <ul>
-        <li><b>🚀 Smart Auto-Map:</b> One-click Windows partition detection and folder mapping</li>
-        <li><b>⚙️ Manual Auto-Map:</b> Custom mount points, username override, and folder selection</li>
-        <li><b>📁 Supported Folders:</b> Desktop, Documents, Downloads, Pictures, Music, Videos</li>
-        <li><b>🔒 Secure:</b> Proper permissions and privilege elevation</li>
-      </ul>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">🚀</div>
+          <h3>Smart Auto-Map</h3>
+          <p>One-click Windows partition detection and folder mapping. No manual configuration required.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⚙️</div>
+          <h3>Manual Auto-Map</h3>
+          <p>Custom mount points, username override, and folder selection for advanced users.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📁</div>
+          <h3>Supported Folders</h3>
+          <p>Desktop, Documents, Downloads, Pictures, Music, Videos — all mapped automatically.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔒</div>
+          <h3>Secure</h3>
+          <p>Proper permissions and privilege elevation for safe, reliable mounting.</p>
+        </div>
+      </div>
     </section>
-    <section id="downloads">
-      <h2>Download</h2>
-      <a class="download-btn" href="https://github.com/your-username/lindy/releases" target="_blank">Get Latest Release</a>
-    </section>
+    <!-- Download section is now part of the hero -->
     <section id="screenshots">
       <h2>Screenshots</h2>
       <img src="screenshot1.png" alt="Lindy main window" />
