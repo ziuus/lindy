@@ -38,24 +38,37 @@ jobs:
       - name: Build Tauri app (Linux)
         run: pnpm tauri build
 
-      - name: Upload Linux artifact
+      - name: Upload Linux AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lindy-linux
+          name: lindy-linux-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload Linux DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lindy-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download build artifact
+      - name: Download AppImage artifact
         uses: actions/download-artifact@v4
         with:
-          name: lindy-linux
+          name: lindy-linux-appimage
+
+      - name: Download DEB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lindy-linux-deb
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.AppImage"
+          files: |
+            *.AppImage
+            *.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
