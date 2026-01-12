@@ -41,6 +41,12 @@ jobs:
             libayatana-appindicator3-dev zlib1g-dev libdbus-1-dev \
             fuse squashfs-tools
 
+        - name: Download linuxdeploy-x86_64.AppImage
+          run: |
+            mkdir -p src-tauri/target/release/bundle/appimage
+            wget -O src-tauri/target/release/bundle/appimage/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+            chmod +x src-tauri/target/release/bundle/appimage/linuxdeploy-x86_64.AppImage
+
       - name: Install Tauri CLI
         run: pnpm dlx @tauri-apps/cli@latest --version
 
