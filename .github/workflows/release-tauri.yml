@@ -51,7 +51,14 @@ jobs:
         run: pnpm dlx @tauri-apps/cli@latest --version
 
       - name: Build Tauri app (Linux)
-        run: TAURI_DEBUG=1 pnpm tauri build
+        run: |
+          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build | tee tauri-build.log
+
+      - name: Upload Tauri build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build-log
+          path: tauri-build.log
 
       - name: Debug linuxdeploy AppImage
         if: always()
