@@ -18,6 +18,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20.19.1
+          cache: 'pnpm'
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -30,11 +31,10 @@ jobs:
         with:
           version: 8
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Install Tauri CLI
-        run: pnpm dlx @tauri-apps/cli@latest --version
+      # Tauri CLI is installed via devDependencies, no need for pnpm dlx
 
       - name: Build Tauri app (Linux)
         run: pnpm tauri build
