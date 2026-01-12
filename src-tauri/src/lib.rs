@@ -255,7 +255,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
     // read /etc/fstab and find the block text and targets for the given id
     let content = fs::read_to_string("/etc/fstab").map_err(|e| format!("failed reading /etc/fstab: {}", e))?;
     let mut in_block = false;
-    let block_lines: Vec<String> = Vec::new();
+    let mut block_lines: Vec<String> = Vec::new();
     let mut targets: Vec<String> = Vec::new();
     for line in content.lines() {
         if line.contains(&format!("# lindy BEGIN: {}", id)) {
