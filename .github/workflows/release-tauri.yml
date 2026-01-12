@@ -2,6 +2,8 @@ name: Build and Release Tauri App
 
 on:
   push:
+  build:
+    runs-on: ubuntu-24.04
     tags:
       - 'v*.*.*'
   workflow_dispatch:
@@ -27,10 +29,21 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 8
-
-      - name: Install frontend dependencies
-        run: pnpm install
+      - name: Install Linux dependencies for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file \
+            squashfs-tools desktop-file-utils \
+            libayatana-appindicator3-dev \
+            librsvg2-dev patchelf appstream \
+            util-linux zsync dpkg fakeroot
 
       - name: Install Tauri CLI
         run: pnpm dlx @tauri-apps/cli@latest --version
@@ -48,8 +61,8 @@ jobs:
         with:
           name: lindy-linux-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
-
-      - name: Upload Linux DEB artifact
+    needs: build
+    runs-on: ubuntu-24.04
         uses: actions/upload-artifact@v4
         with:
           name: lindy-linux-deb
