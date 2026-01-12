@@ -45,7 +45,7 @@ jobs:
         run: pnpm dlx @tauri-apps/cli@latest --version
 
       - name: Build Tauri app (Linux)
-        run: pnpm tauri build
+        run: TAURI_DEBUG=1 pnpm tauri build
 
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
