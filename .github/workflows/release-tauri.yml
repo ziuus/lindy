@@ -48,11 +48,15 @@ jobs:
         run: TAURI_DEBUG=1 pnpm tauri build
 
       - name: Debug linuxdeploy AppImage
+        if: always()
         run: |
-          cd src-tauri/target/release/bundle/appimage
+          echo "Listing AppImage bundle directory:"
+          ls -lh src-tauri/target/release/bundle/appimage || true
+          cd src-tauri/target/release/bundle/appimage || exit 0
           if [ -f linuxdeploy-x86_64.AppImage ]; then
             chmod +x linuxdeploy-x86_64.AppImage
-            ./linuxdeploy-x86_64.AppImage --appdir . --output appimage || cat ./AppImage*.log || true
+            echo "Running linuxdeploy manually..."
+            ./linuxdeploy-x86_64.AppImage --appdir . --output appimage || (echo "linuxdeploy failed with exit code $?"; cat ./AppImage*.log || true)
           else
             echo "linuxdeploy-x86_64.AppImage not found."
           fi
