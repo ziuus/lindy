@@ -81,7 +81,6 @@ jobs:
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/rpm/*.rpm
 
   release:
     needs: build
@@ -91,13 +90,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: lindy-linux-installers
+          path: ./dist
+
+      - name: List downloaded files
+        run: ls -lh ./dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            *.AppImage
-            *.deb
-            *.rpm
+            dist/*.AppImage
+            dist/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
