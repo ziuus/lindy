@@ -47,6 +47,16 @@ jobs:
       - name: Build Tauri app (Linux)
         run: TAURI_DEBUG=1 pnpm tauri build
 
+      - name: Debug linuxdeploy AppImage
+        run: |
+          cd src-tauri/target/release/bundle/appimage
+          if [ -f linuxdeploy-x86_64.AppImage ]; then
+            chmod +x linuxdeploy-x86_64.AppImage
+            ./linuxdeploy-x86_64.AppImage --appdir . --output appimage || cat ./AppImage*.log || true
+          else
+            echo "linuxdeploy-x86_64.AppImage not found."
+          fi
+
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
         with:
