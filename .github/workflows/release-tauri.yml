@@ -50,11 +50,12 @@ jobs:
       - name: Install Tauri CLI
         run: pnpm dlx @tauri-apps/cli@latest --version
 
-      - name: Pre-build: Print tauri-build.log if exists
+      - name: Print tauri-build.log before build
         run: |
-          echo "Pre-build: Checking tauri-build.log existence and contents:"
+          echo "Checking tauri-build.log existence BEFORE build:"
           if [ -f tauri-build.log ]; then
             ls -lh tauri-build.log
+            echo "Contents of tauri-build.log before build:"
             cat tauri-build.log
           else
             echo "tauri-build.log does not exist before build."
