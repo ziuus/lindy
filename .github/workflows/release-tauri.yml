@@ -36,6 +36,8 @@ jobs:
           override: true
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Install frontend dependencies
         run: pnpm install
