@@ -785,7 +785,7 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
     if let Ok(content) = maybe_content {
         let mut out_lines: Vec<String> = Vec::new();
         let mut in_block = false;
-        let mut found = false;
+        let found = false;
         let mut targets: Vec<String> = Vec::new();
 
         for line in content.lines() {
