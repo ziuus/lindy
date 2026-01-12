@@ -92,14 +92,14 @@ jobs:
           name: lindy-linux-installers
           path: ./dist
 
-      - name: List downloaded files
-        run: ls -lh ./dist
+      - name: List all files in dist
+        run: find ./dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.AppImage
-            dist/*.deb
+            dist/src-tauri/target/release/bundle/appimage/*.AppImage
+            dist/src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
