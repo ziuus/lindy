@@ -33,7 +33,7 @@ jobs:
         run: pnpm install
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev libgtk-3-dev pkg-config libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev libgdk-pixbuf2.0-dev libpango1.0-dev libatk1.0-dev libcairo2-dev libx11-dev
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-dev libgtk-3-dev pkg-config libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev libgdk-pixbuf2.0-dev libpango1.0-dev libatk1.0-dev libcairo2-dev libx11-dev patchelf libssl-dev libayatana-appindicator3-dev zlib1g-dev libdbus-1-dev
 
       - name: Install Tauri CLI
         run: pnpm dlx @tauri-apps/cli@latest --version
