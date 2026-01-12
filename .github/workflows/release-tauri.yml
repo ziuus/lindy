@@ -11,8 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -20,21 +19,42 @@ jobs:
           node-version: 20.19.1
           cache: 'pnpm'
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install frontend dependencies
         run: pnpm install
 
-      # Tauri CLI is installed via devDependencies, no need for pnpm dlx
+      - name: Install Linux dependencies for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file \
+            squashfs-tools desktop-file-utils \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            appstream \
+            util-linux \
+            zsync \
+            dpkg \
+            fakeroot
 
       - name: Build Tauri app (Linux)
         run: pnpm tauri build
@@ -55,13 +75,11 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - name: Download AppImage artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: lindy-linux-appimage
 
-      - name: Download DEB artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: lindy-linux-deb
 
