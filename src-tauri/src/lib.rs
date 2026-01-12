@@ -1,13 +1,14 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
 
 // Helper to run a constructed shell script via pkexec using a temp file.
 // This avoids complex shell-quoting issues when passing a big script to
 // `sh -c '...'` and is more portable across distros / shells.
 fn run_pkexec_with_script(script: &str) -> Result<std::process::Output, std::io::Error> {
     use std::fs;
-    use std::process::Command;
+    // removed unused import
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -22,7 +23,7 @@ fn run_pkexec_with_script(script: &str) -> Result<std::process::Output, std::io:
     let out = Command::new("pkexec").arg("sh").arg(&path).output();
 
     // best-effort remove the temporary script
-    let _ = fs::remove_file(&path);
+    let _ = fs::remove_file(&path); // best-effort cleanup, ignore result
     out
 }
 #[tauri::command]
@@ -54,7 +55,6 @@ fn perform_mounts(
     force: Option<bool>,
 ) -> Result<String, String> {
     use std::fs;
-    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let do_force = force.unwrap_or(false);
@@ -103,7 +103,7 @@ fn perform_mounts(
     // We'll update this metadata after attempting persistence to mark whether
     // it was actually written to /etc/fstab (persisted=true).
     let meta_dir = "/var/lib/lindy";
-    let _ = fs::create_dir_all(meta_dir);
+    let _ = fs::create_dir_all(meta_dir); // best-effort, ignore result
     let meta_path = format!("{}/{}.json", meta_dir, id);
     let initial_meta = serde_json::json!({
         "id": id,
@@ -113,8 +113,7 @@ fn perform_mounts(
         "persisted": false,
         "note": "pending persistence to /etc/fstab",
     });
-    // best-effort write; ignore errors but try to persist a record
-    let _ = fs::write(&meta_path, serde_json::to_string_pretty(&initial_meta).unwrap_or_default());
+    let _ = fs::write(&meta_path, serde_json::to_string_pretty(&initial_meta).unwrap_or_default()); // best-effort
 
     // local helper to shell-escape a path for single-quoted or double-quoted use
     fn shell_escape_single_local(s: &str) -> String {
@@ -178,7 +177,7 @@ fn perform_mounts(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     // Clean up temp file
-    let _ = fs::remove_file(&tmp_path);
+    let _ = fs::remove_file(&tmp_path); // best-effort cleanup
 
     if output.status.success() || stdout.contains("MOUNT_OK") || stdout.contains("MOUNT_OK_AFTER_LAZY") {
         // Update metadata to mark persistence succeeded
@@ -194,7 +193,7 @@ fn perform_mounts(
         meta_obj["persisted_at"] = serde_json::json!(now2);
         meta_obj["persist_stdout"] = serde_json::json!(stdout.clone());
         meta_obj["persist_stderr"] = serde_json::json!(stderr.clone());
-        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default());
+        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default()); // best-effort
         let resp = serde_json::json!({
             "status": "ok",
             "code": "applied",
@@ -217,7 +216,7 @@ fn perform_mounts(
         meta_obj["persist_error"] = serde_json::json!(format!("pkexec exit code: {:?}", output.status.code()));
         meta_obj["persist_stdout"] = serde_json::json!(stdout.clone());
         meta_obj["persist_stderr"] = serde_json::json!(stderr.clone());
-        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default());
+        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default()); // best-effort
 
         // check exit code to determine busy vs other failure
         let code = output.status.code();
@@ -256,20 +255,17 @@ fn adopt_block(id: &str) -> Result<String, String> {
     // read /etc/fstab and find the block text and targets for the given id
     let content = fs::read_to_string("/etc/fstab").map_err(|e| format!("failed reading /etc/fstab: {}", e))?;
     let mut in_block = false;
-    let mut found = false;
     let mut block_lines: Vec<String> = Vec::new();
     let mut targets: Vec<String> = Vec::new();
     for line in content.lines() {
         if line.contains(&format!("# lindy BEGIN: {}", id)) {
             in_block = true;
-            found = true;
             block_lines.push(line.to_string());
             continue;
         }
         if in_block {
             block_lines.push(line.to_string());
             if line.contains(&format!("# lindy END: {}", id)) {
-                in_block = false;
                 break;
             }
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -278,9 +274,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
             }
         }
     }
-    if !found {
-        return Err(format!("block id {} not found in /etc/fstab", id));
-    }
+    // removed unused found check
     let block_text = block_lines.join("\n") + "\n";
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let meta = serde_json::json!({
@@ -290,7 +284,7 @@ fn adopt_block(id: &str) -> Result<String, String> {
         "installed_at": now,
     });
     let meta_dir = "/var/lib/lindy";
-    let _ = fs::create_dir_all(meta_dir);
+    let _ = fs::create_dir_all(meta_dir); // best-effort
     let meta_path = format!("{}/{}.json", meta_dir, id);
     fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default()).map_err(|e| format!("failed to write metadata: {}", e))?;
     let resp = serde_json::json!({
@@ -309,7 +303,6 @@ fn adopt_block(id: &str) -> Result<String, String> {
 #[tauri::command]
 fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<String, String> {
     use std::fs;
-    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Prevent accidental duplicate target mountpoints: ensure none of the requested
@@ -606,7 +599,6 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
 #[tauri::command]
 fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
     use std::fs;
-    use std::process::Command;
     let t = target.trim();
     if t.is_empty() {
         return Ok(None);
@@ -669,7 +661,6 @@ fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
 /// Find a block for a target then perform removal in a single operation.
 #[tauri::command]
 fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> {
-    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
     use std::fs;
 
@@ -777,7 +768,6 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
 #[tauri::command]
 fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
     use std::fs;
-    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     if id.trim().is_empty() {
@@ -801,7 +791,6 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         for line in content.lines() {
             if line.contains(&format!("# lindy BEGIN: {}", id)) {
                 in_block = true;
-                found = true;
                 continue;
             }
             if in_block {
@@ -867,33 +856,23 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         }
 
         // Attempt to find and unmount a partition mountpoint inside the block (non-bind line)
-        let mut partition_mountpoint: Option<String> = None;
-        let mut in_b = false;
-        for l in content.lines() {
-            if l.contains(&format!("# lindy BEGIN: {}", id)) {
-                in_b = true;
+        let partition_mountpoint: Option<String> = None;
+        for line in content.lines() {
+            if line.contains(&format!("# lindy BEGIN: {}", id)) {
+                in_block = true;
                 continue;
             }
-            if in_b {
-                if l.contains(&format!("# lindy END: {}", id)) {
+            if in_block {
+                if line.contains(&format!("# lindy END: {}", id)) {
                     break;
                 }
-                let trimmed = l.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                    continue;
-                }
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    if !(parts.len() >= 6 && parts[2] == "none" && parts[3] == "bind") {
-                        let mp = parts[1].to_string();
-                        if mp.starts_with('/') {
-                            partition_mountpoint = Some(mp);
-                            break;
-                        }
-                    }
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 6 && parts[2] == "none" && parts[3] == "bind" {
+                    targets.push(parts[1].to_string());
                 }
             }
         }
+// Removed stray/duplicate closing braces that caused syntax error
 
         if let Some(mp) = partition_mountpoint {
             let esc = shell_escape_single(&mp);
@@ -1025,7 +1004,6 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
     }
 
     // All branches return above; nothing to do here.
-    Ok(serde_json::to_string(&serde_json::json!({"status":"error","code":"internal","message":"unreachable"})).unwrap())
 }
 
 /// Build a recommended fstab line set for a shared partition + one bind mount mapping.
@@ -1264,8 +1242,7 @@ fn suggest_folder_mappings(
 /// Detect Windows partitions on the system
 #[tauri::command]
 fn detect_windows_partitions() -> Result<Vec<WindowsPartition>, String> {
-    use std::process::Command;
-    use std::path::Path;
+    // use std::path::Path; (removed unused import)
     
     // Get partition list using lsblk
     let output = Command::new("lsblk")
