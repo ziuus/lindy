@@ -52,7 +52,10 @@ jobs:
 
       - name: Build Tauri app (Linux)
         run: |
-          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build | tee tauri-build.log
+          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build > tauri-build.log 2>&1
+
+      - name: Print last 50 lines of build log
+        run: tail -n 50 tauri-build.log
 
       - name: Upload Tauri build log
         uses: actions/upload-artifact@v4
