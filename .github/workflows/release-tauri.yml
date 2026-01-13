@@ -61,9 +61,17 @@ jobs:
             echo "tauri-build.log does not exist before build."
           fi
 
+      - name: Clean previous build artifacts
+        run: |
+          rm -rf src-tauri/target/release/bundle/appimage/* || true
+          rm -rf src-tauri/target/release/bundle/deb/* || true
+          rm -f tauri-build.log || true
+
       - name: Build Tauri app (Linux)
         run: |
-          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build > tauri-build.log 2>&1
+          set -e
+          echo "Starting Tauri build..."
+          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build > tauri-build.log 2>&1 || (echo "Tauri build failed with exit code $?"; cat tauri-build.log || true; exit 1)
 
       - name: Print last 50 lines of build log
         run: |
@@ -107,6 +115,8 @@ jobs:
           else
             echo "linuxdeploy-x86_64.AppImage not found."
           fi
+          echo "Listing all files in appimage directory after debug:"
+          ls -lh .
 
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
@@ -114,6 +124,7 @@ jobs:
           name: lindy-linux-installers
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppDir
             src-tauri/target/release/bundle/deb/*.deb
 
   release:
