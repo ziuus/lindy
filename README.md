@@ -41,13 +41,12 @@ Lindy simplifies filesystem mount management for Linux users in dual-boot enviro
 
 ## Installation
 
-You can download the latest installers (.deb, .rpm, .AppImage) from the [Installers](./Installers) folder.
+You can download the latest installers (.deb, .rpm, .AppImage) from the [Installers](./docs/Installers) folder.
 
 ## System Requirements
 
 - Linux desktop distribution
-- User account with sudo privileges
-- pkexec/polkit for privilege elevation
+- **Dependencies**: `psmisc` (for fuser) and `polkit` (for pkexec)
 - Windows partition (NTFS/exFAT) for dual-boot scenarios
 
 ## Development

@@ -1,28 +1,38 @@
-name: Build and Release Tauri App
-
+name: Release
+backend:
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Install dependencies (Ubuntu)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
@@ -32,119 +42,13 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libglib2.0-dev libgtk-3-dev pkg-config libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libwebkit2gtk-4.1-dev \
-            libgdk-pixbuf2.0-dev libpango1.0-dev libatk1.0-dev libcairo2-dev libx11-dev patchelf libssl-dev \
-            libayatana-appindicator3-dev zlib1g-dev libdbus-1-dev \
-            fuse squashfs-tools
-
-      - name: Download linuxdeploy-x86_64.AppImage manually
-        run: |
-          mkdir -p src-tauri/target/release/bundle/appimage
-          wget -O src-tauri/target/release/bundle/appimage/linuxdeploy-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x src-tauri/target/release/bundle/appimage/linuxdeploy-x86_64.AppImage
-
-      - name: Install Tauri CLI
-        run: pnpm dlx @tauri-apps/cli@latest --version
-
-      - name: Print tauri-build.log before build
-        run: |
-          echo "Checking tauri-build.log existence BEFORE build:"
-          if [ -f tauri-build.log ]; then
-            ls -lh tauri-build.log
-            echo "Contents of tauri-build.log before build:"
-            cat tauri-build.log
-          else
-            echo "tauri-build.log does not exist before build."
-          fi
-
-      - name: Clean previous build artifacts
-        run: |
-          rm -rf src-tauri/target/release/bundle/appimage/* || true
-          rm -rf src-tauri/target/release/bundle/deb/* || true
-          rm -f tauri-build.log || true
-
-      - name: Build Tauri app (Linux)
-        run: |
-          set -e
-          echo "Starting Tauri build..."
-          LINUXDEPLOY_LOGLEVEL=2 TAURI_DEBUG=1 pnpm tauri build > tauri-build.log 2>&1 || (echo "Tauri build failed with exit code $?"; cat tauri-build.log || true; exit 1)
-
-      - name: Print last 50 lines of build log
-        run: |
-          echo "Checking tauri-build.log existence and size:"
-          if [ -f tauri-build.log ]; then
-            ls -lh tauri-build.log
-            lines=$(wc -l < tauri-build.log)
-            echo "tauri-build.log has $lines lines."
-            if [ "$lines" -eq 0 ]; then
-              echo "tauri-build.log is empty. Printing workspace files for debug:"
-              find .
-            elif [ "$lines" -le 100 ]; then
-              echo "tauri-build.log is short, printing full log:"
-              cat tauri-build.log
-            else
-              echo "Printing first 20 and last 50 lines of tauri-build.log:"
-              head -n 20 tauri-build.log
-              tail -n 50 tauri-build.log
-            fi
-          else
-            echo "tauri-build.log does not exist! Printing workspace files for debug:"
-            find .
-          fi
-
-      - name: Upload Tauri build log
-        uses: actions/upload-artifact@v4
-        with:
-          name: tauri-build-log
-          path: tauri-build.log
-
-      - name: Debug linuxdeploy AppImage
-        if: always()
-        run: |
-          echo "Listing AppImage bundle directory:"
-          ls -lh src-tauri/target/release/bundle/appimage || true
-          cd src-tauri/target/release/bundle/appimage || exit 0
-          if [ -f linuxdeploy-x86_64.AppImage ]; then
-            chmod +x linuxdeploy-x86_64.AppImage
-            echo "Running linuxdeploy manually..."
-            ./linuxdeploy-x86_64.AppImage --appdir . --output appimage || (echo "linuxdeploy failed with exit code $?"; cat ./AppImage*.log || true)
-          else
-            echo "linuxdeploy-x86_64.AppImage not found."
-          fi
-          echo "Listing all files in appimage directory after debug:"
-          ls -lh .
-
-      - name: Upload Linux installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: lindy-linux-installers
-          path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/appimage/*.AppDir
-            src-tauri/target/release/bundle/deb/*.deb
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build installers
-        uses: actions/download-artifact@v4
-        with:
-          name: lindy-linux-installers
-          path: ./dist
-
-      - name: List all files in dist
-        run: find ./dist
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/src-tauri/target/release/bundle/appimage/*.AppImage
-            dist/src-tauri/target/release/bundle/deb/*.deb
+      - name: Build and bundle
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Lindy ${{ github.ref_name }}'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: false
+          prerelease: false
