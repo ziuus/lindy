@@ -38,6 +38,11 @@ Lindy simplifies filesystem mount management for Linux users in dual-boot enviro
 | Music | Music |
 | Videos | Videos |
 
+
+## Installation
+
+You can download the latest installers (.deb, .rpm, .AppImage) from the [Installers](./Installers) folder.
+
 ## System Requirements
 
 - Linux desktop distribution
