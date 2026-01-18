@@ -11,7 +11,10 @@ fn run_pkexec_with_script(script: &str) -> Result<std::process::Output, std::io:
     // removed unused import
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let pid = std::process::id();
     let path = format!("/tmp/lindy-pkexec-{}-{}.sh", pid, now);
     fs::write(&path, script)?;
@@ -26,6 +29,12 @@ fn run_pkexec_with_script(script: &str) -> Result<std::process::Output, std::io:
     let _ = fs::remove_file(&path); // best-effort cleanup, ignore result
     out
 }
+
+fn get_meta_dir() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    format!("{}/.local/share/lindy", home)
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -34,9 +43,24 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-    .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![greet, generate_fstab_line, list_partitions, apply_fstab_block, list_fstab_blocks, remove_fstab_block, perform_mounts, adopt_block, find_block_for_target, remove_block_for_target, detect_user_folders, suggest_folder_mappings, detect_windows_partitions, auto_mount_and_map])
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            generate_fstab_line,
+            list_partitions,
+            apply_fstab_block,
+            list_fstab_blocks,
+            remove_fstab_block,
+            perform_mounts,
+            adopt_block,
+            find_block_for_target,
+            remove_block_for_target,
+            detect_user_folders,
+            suggest_folder_mappings,
+            detect_windows_partitions,
+            auto_mount_and_map
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -65,13 +89,15 @@ fn perform_mounts(
         if let Some(uuid) = partition_uuid {
             let uuid_trim = uuid.trim();
             if !uuid_trim.is_empty() {
-                let has_partition_line = new_block.lines().any(|l| l.trim_start().starts_with("UUID=") || l.contains(" x-systemd.automount "));
+                let has_partition_line = new_block.lines().any(|l| {
+                    l.trim_start().starts_with("UUID=") || l.contains(" x-systemd.automount ")
+                });
                 if !has_partition_line {
                     let base = base_mount.unwrap_or_else(|| String::from("/mnt/shared"));
                     let partition_line = format!("UUID={} {} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=10 0 2", uuid_trim, base);
                     if let Some(first_nl) = new_block.find('\n') {
                         let first = &new_block[..first_nl];
-                        let rest = &new_block[first_nl+1..];
+                        let rest = &new_block[first_nl + 1..];
                         if first.contains("# lindy BEGIN:") {
                             new_block = format!("{}\n{}\n{}", first, partition_line, rest);
                         } else {
@@ -86,7 +112,10 @@ fn perform_mounts(
     }
 
     // write temp file
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let tmp_path = format!("/tmp/lindy-fstab-{}-{}.tmp", id, now);
     match fs::File::create(&tmp_path) {
         Ok(mut f) => {
@@ -102,8 +131,8 @@ fn perform_mounts(
     // the privileged persistence step (pkexec append to /etc/fstab) fails.
     // We'll update this metadata after attempting persistence to mark whether
     // it was actually written to /etc/fstab (persisted=true).
-    let meta_dir = "/var/lib/lindy";
-    let _ = fs::create_dir_all(meta_dir); // best-effort, ignore result
+    let meta_dir = get_meta_dir();
+    let _ = fs::create_dir_all(&meta_dir); // best-effort, ignore result
     let meta_path = format!("{}/{}.json", meta_dir, id);
     let initial_meta = serde_json::json!({
         "id": id,
@@ -113,7 +142,10 @@ fn perform_mounts(
         "persisted": false,
         "note": "pending persistence to /etc/fstab",
     });
-    let _ = fs::write(&meta_path, serde_json::to_string_pretty(&initial_meta).unwrap_or_default()); // best-effort
+    let _ = fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&initial_meta).unwrap_or_default(),
+    ); // best-effort
 
     // local helper to shell-escape a path for single-quoted or double-quoted use
     fn shell_escape_single_local(s: &str) -> String {
@@ -137,14 +169,22 @@ fn perform_mounts(
     // We'll attempt mount -a; on failure we'll collect fuser output for each target and optionally retry with lazy unmount
     let mut shell = String::new();
     shell.push_str("set -e\n");
-    shell.push_str(&format!("cp /etc/fstab {backup} && cat {tmp} >> /etc/fstab && sync\n", backup = backup, tmp = tmp_path));
+    shell.push_str(&format!(
+        "cp /etc/fstab {backup} && cat {tmp} >> /etc/fstab && sync\n",
+        backup = backup,
+        tmp = tmp_path
+    ));
 
     shell.push_str("echo 'Attempting mount -a'\n");
     shell.push_str("if mount -a; then echo 'MOUNT_OK'; else\n");
     // collect fuser output for targets
     for t in &targets {
         let esc = shell_escape_single_local(t);
-        shell.push_str(&format!("echo 'FUSER {t}:'; fuser -mv {esc} || true;\n", t = t, esc = esc));
+        shell.push_str(&format!(
+            "echo 'FUSER {t}:'; fuser -mv {esc} || true;\n",
+            t = t,
+            esc = esc
+        ));
     }
     if do_force {
         shell.push_str("echo 'Attempting lazy unmount of targets'\n");
@@ -179,9 +219,15 @@ fn perform_mounts(
     // Clean up temp file
     let _ = fs::remove_file(&tmp_path); // best-effort cleanup
 
-    if output.status.success() || stdout.contains("MOUNT_OK") || stdout.contains("MOUNT_OK_AFTER_LAZY") {
+    if output.status.success()
+        || stdout.contains("MOUNT_OK")
+        || stdout.contains("MOUNT_OK_AFTER_LAZY")
+    {
         // Update metadata to mark persistence succeeded
-        let now2 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now2 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let meta_path = format!("{}/{}.json", meta_dir, id);
         let mut meta_obj = serde_json::json!({
             "id": id,
@@ -193,7 +239,10 @@ fn perform_mounts(
         meta_obj["persisted_at"] = serde_json::json!(now2);
         meta_obj["persist_stdout"] = serde_json::json!(stdout.clone());
         meta_obj["persist_stderr"] = serde_json::json!(stderr.clone());
-        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default()); // best-effort
+        let _ = fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&meta_obj).unwrap_or_default(),
+        ); // best-effort
         let resp = serde_json::json!({
             "status": "ok",
             "code": "applied",
@@ -213,10 +262,14 @@ fn perform_mounts(
             "installed_at": now,
         });
         meta_obj["persisted"] = serde_json::Value::Bool(false);
-        meta_obj["persist_error"] = serde_json::json!(format!("pkexec exit code: {:?}", output.status.code()));
+        meta_obj["persist_error"] =
+            serde_json::json!(format!("pkexec exit code: {:?}", output.status.code()));
         meta_obj["persist_stdout"] = serde_json::json!(stdout.clone());
         meta_obj["persist_stderr"] = serde_json::json!(stderr.clone());
-        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta_obj).unwrap_or_default()); // best-effort
+        let _ = fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&meta_obj).unwrap_or_default(),
+        ); // best-effort
 
         // check exit code to determine busy vs other failure
         let code = output.status.code();
@@ -253,7 +306,8 @@ fn perform_mounts(
 fn adopt_block(id: &str) -> Result<String, String> {
     use std::fs;
     // read /etc/fstab and find the block text and targets for the given id
-    let content = fs::read_to_string("/etc/fstab").map_err(|e| format!("failed reading /etc/fstab: {}", e))?;
+    let content = fs::read_to_string("/etc/fstab")
+        .map_err(|e| format!("failed reading /etc/fstab: {}", e))?;
     let mut in_block = false;
     let mut block_lines: Vec<String> = Vec::new();
     let mut targets: Vec<String> = Vec::new();
@@ -276,17 +330,25 @@ fn adopt_block(id: &str) -> Result<String, String> {
     }
     // removed unused found check
     let block_text = block_lines.join("\n") + "\n";
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let meta = serde_json::json!({
         "id": id,
         "block": block_text,
         "targets": targets,
         "installed_at": now,
+        "installed_at": now,
     });
-    let meta_dir = "/var/lib/lindy";
-    let _ = fs::create_dir_all(meta_dir); // best-effort
+    let meta_dir = get_meta_dir();
+    let _ = fs::create_dir_all(&meta_dir); // best-effort
     let meta_path = format!("{}/{}.json", meta_dir, id);
-    fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default()).map_err(|e| format!("failed to write metadata: {}", e))?;
+    fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+    )
+    .map_err(|e| format!("failed to write metadata: {}", e))?;
     let resp = serde_json::json!({
         "status": "ok",
         "code": "adopted",
@@ -326,11 +388,17 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
                 if let Some(pos) = line.find("# lindy BEGIN:") {
                     let id = line[pos + "# lindy BEGIN:".len()..].trim().to_string();
                     current_block_id = Some(id.clone());
-                    block_texts.entry(id.clone()).or_default().push(line.to_string());
+                    block_texts
+                        .entry(id.clone())
+                        .or_default()
+                        .push(line.to_string());
                     continue;
                 }
                 if let Some(ref id) = current_block_id {
-                    block_texts.entry(id.clone()).or_default().push(line.to_string());
+                    block_texts
+                        .entry(id.clone())
+                        .or_default()
+                        .push(line.to_string());
                     if line.contains("# lindy END:") {
                         current_block_id = None;
                         continue;
@@ -358,10 +426,13 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
                 }
                 if let Some(block_id) = found_in_block {
                     // If metadata already exists for this block, treat as duplicate/managed
-                    let meta_dir = "/var/lib/lindy";
+                    let meta_dir = get_meta_dir();
                     let meta_path = format!("{}/{}.json", meta_dir, block_id);
                     if std::path::Path::new(&meta_path).exists() {
-                        return Err(format!("target {} already managed by app (metadata {}).", t, meta_path));
+                        return Err(format!(
+                            "target {} already managed by app (metadata {}).",
+                            t, meta_path
+                        ));
                     }
                     // Metadata missing: adopt the block by writing metadata derived from the block text
                     if let Some(text_lines) = block_texts.get(&block_id) {
@@ -384,7 +455,10 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
                         if parts[1] == t {
-                            return Err(format!("target {} already present in /etc/fstab (line: {})", t, line));
+                            return Err(format!(
+                                "target {} already present in /etc/fstab (line: {})",
+                                t, line
+                            ));
                         }
                     }
                 }
@@ -392,8 +466,9 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
         }
 
         // Check metadata dir for existing managed targets (unchanged)
-        let meta_dir = "/var/lib/lindy";
-        if let Ok(entries) = std::fs::read_dir(meta_dir) {
+        // Check metadata dir for existing managed targets (unchanged)
+        let meta_dir = get_meta_dir();
+        if let Ok(entries) = std::fs::read_dir(&meta_dir) {
             for e in entries.flatten() {
                 if let Ok(s) = std::fs::read_to_string(e.path()) {
                     if let Ok(j) = serde_json::from_str::<serde_json::Value>(&s) {
@@ -425,7 +500,10 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
     }
 
     // Create a temp file in /tmp
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let tmp_path = format!("/tmp/lindy-fstab-{}-{}.tmp", id, now);
     match fs::File::create(&tmp_path) {
         Ok(mut f) => {
@@ -439,14 +517,26 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
 
     // Build the privileged shell command: backup fstab, append temp file, run mount -a
     let backup = format!("/etc/fstab.lindy.bak.{}", now);
-    let cmd = format!("cp /etc/fstab {backup} && cat {tmp} >> /etc/fstab && mount -a", backup = backup, tmp = tmp_path);
+    let cmd = format!(
+        "cp /etc/fstab {backup} && cat {tmp} >> /etc/fstab && mount -a",
+        backup = backup,
+        tmp = tmp_path
+    );
 
     // Execute via pkexec so a polkit prompt appears
     // Log the command for debugging (append-only)
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-        let _ = writeln!(f, "[{}] apply_fstab_block id={} cmd=---\n{}---", now, id, cmd);
-        Ok(())
-    });
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/lindy-debug.log")
+        .and_then(|mut f| {
+            let _ = writeln!(
+                f,
+                "[{}] apply_fstab_block id={} cmd=---\n{}---",
+                now, id, cmd
+            );
+            Ok(())
+        });
 
     let output = match run_pkexec_with_script(&cmd) {
         Ok(o) => o,
@@ -468,15 +558,27 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-        let _ = writeln!(f, "[{}] apply_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
-        Ok(())
-    });
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/lindy-debug.log")
+        .and_then(|mut f| {
+            let _ = writeln!(
+                f,
+                "[{}] apply_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---",
+                now,
+                id,
+                output.status.code(),
+                stdout,
+                stderr
+            );
+            Ok(())
+        });
 
     if output.status.success() {
         // Write metadata for this install so we can manage it later
-        let meta_dir = "/var/lib/lindy";
-        let _ = fs::create_dir_all(meta_dir);
+        let meta_dir = get_meta_dir();
+        let _ = fs::create_dir_all(&meta_dir);
         let meta_path = format!("{}/{}.json", meta_dir, id);
         let meta = serde_json::json!({
             "id": id,
@@ -484,7 +586,10 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
             "targets": targets,
             "installed_at": now,
         });
-        let _ = fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+        let _ = fs::write(
+            &meta_path,
+            serde_json::to_string_pretty(&meta).unwrap_or_default(),
+        );
         let resp = serde_json::json!({
             "status": "ok",
             "code": "applied",
@@ -506,10 +611,16 @@ fn apply_fstab_block(block: &str, id: &str, targets: Vec<String>) -> Result<Stri
 }
 
 #[derive(serde::Serialize)]
+struct FstabBind {
+    src: String,
+    target: String,
+}
+#[derive(serde::Serialize)]
 struct FstabBlock {
     id: String,
     text: String,
     targets: Vec<String>,
+    binds: Vec<FstabBind>,
     // whether this block was created/recorded by our app (metadata exists)
     managed: bool,
 }
@@ -555,15 +666,34 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
                         targets.push(target);
                     }
                 }
+
+                // Parse binds from the collected text for frontend restoration
+                let mut binds = Vec::new();
+                for l in &block_lines {
+                    let parts: Vec<&str> = l.split_whitespace().collect();
+                    if parts.len() >= 6 && parts[2] == "none" && parts[3] == "bind" {
+                        binds.push(FstabBind {
+                            src: parts[0].to_string(),
+                            target: parts[1].to_string(),
+                        });
+                    }
+                }
+
                 // managed will be set below if metadata exists
-                blocks.push(FstabBlock { id, text: block_lines.join("\n"), targets, managed: false });
+                blocks.push(FstabBlock {
+                    id,
+                    text: block_lines.join("\n"),
+                    targets,
+                    binds,
+                    managed: false,
+                });
             }
         }
     }
 
     // Now read metadata directory to mark managed blocks and include metadata-only entries
-    let meta_dir = "/var/lib/lindy";
-    if let Ok(entries) = fs::read_dir(meta_dir) {
+    let meta_dir = get_meta_dir();
+    if let Ok(entries) = fs::read_dir(&meta_dir) {
         for e in entries.flatten() {
             if let Ok(s) = fs::read_to_string(e.path()) {
                 if let Ok(j) = serde_json::from_str::<serde_json::Value>(&s) {
@@ -581,10 +711,36 @@ fn list_fstab_blocks() -> Result<Vec<FstabBlock>, String> {
                         // otherwise create a metadata-only entry
                         let mut targets: Vec<String> = Vec::new();
                         if let Some(tarr) = j.get("targets").and_then(|x| x.as_array()) {
-                            for tv in tarr { if let Some(ts) = tv.as_str() { targets.push(ts.to_string()); } }
+                            for tv in tarr {
+                                if let Some(ts) = tv.as_str() {
+                                    targets.push(ts.to_string());
+                                }
+                            }
                         }
-                        let txt = j.get("block").and_then(|x| x.as_str()).unwrap_or("(managed by app)").to_string();
-                        blocks.push(FstabBlock { id, text: txt, targets, managed: true });
+                        let txt = j
+                            .get("block")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("(managed by app)")
+                            .to_string();
+
+                        let mut binds = Vec::new();
+                        for l in txt.lines() {
+                            let parts: Vec<&str> = l.split_whitespace().collect();
+                            if parts.len() >= 6 && parts[2] == "none" && parts[3] == "bind" {
+                                binds.push(FstabBind {
+                                    src: parts[0].to_string(),
+                                    target: parts[1].to_string(),
+                                });
+                            }
+                        }
+
+                        blocks.push(FstabBlock {
+                            id,
+                            text: txt,
+                            targets,
+                            binds,
+                            managed: true,
+                        });
                     }
                 }
             }
@@ -632,8 +788,8 @@ fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
     }
 
     // check metadata directory as fallback
-    let meta_dir = "/var/lib/lindy";
-    if let Ok(entries) = fs::read_dir(meta_dir) {
+    let meta_dir = get_meta_dir();
+    if let Ok(entries) = fs::read_dir(&meta_dir) {
         for e in entries.flatten() {
             if let Ok(s) = fs::read_to_string(e.path()) {
                 if let Ok(j) = serde_json::from_str::<serde_json::Value>(&s) {
@@ -661,8 +817,8 @@ fn find_block_for_target(target: &str) -> Result<Option<String>, String> {
 /// Find a block for a target then perform removal in a single operation.
 #[tauri::command]
 fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     if target.trim().is_empty() {
         return Err("missing target".into());
@@ -685,7 +841,10 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
         out
     }
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let tgt_esc = shell_escape_single(target);
     let newtmp = format!("/tmp/lindy-newfst-{}-{}.tmp", "by-target", now);
 
@@ -726,10 +885,18 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     ));
 
     // Log command
-    let _ = fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-        let _ = writeln!(f, "[{}] remove_block_for_target target={} cmd=---\n{}---", now, target, cmd);
-        Ok(())
-    });
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/lindy-debug.log")
+        .and_then(|mut f| {
+            let _ = writeln!(
+                f,
+                "[{}] remove_block_for_target target={} cmd=---\n{}---",
+                now, target, cmd
+            );
+            Ok(())
+        });
 
     let output = match run_pkexec_with_script(&cmd) {
         Ok(o) => o,
@@ -750,7 +917,7 @@ fn remove_block_for_target(target: &str, force: bool) -> Result<String, String> 
     if output.status.success() {
         // remove metadata file if present
         // attempt to infer id from stdout? but safer to remove any metadata that contains the target
-        if let Ok(entries) = fs::read_dir("/var/lib/lindy") {
+        if let Ok(entries) = fs::read_dir(get_meta_dir()) {
             for e in entries.flatten() {
                 if let Ok(s) = fs::read_to_string(e.path()) {
                     if s.contains(target) {
@@ -779,7 +946,10 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
     // shell script that performs the same extraction and replacement under pkexec
     // so the polkit prompt will appear and do the work as root.
     let maybe_content = fs::read_to_string("/etc/fstab");
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
     // If we could read /etc/fstab normally, use the in-process parsing path.
     if let Ok(content) = maybe_content {
@@ -819,7 +989,8 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
 
         // Build temp new fstab
         let newfst = format!("/tmp/lindy-newfst-{}-{}.tmp", id, now);
-        fs::write(&newfst, out_lines.join("\n") + "\n").map_err(|e| format!("failed to write new fstab temp: {}", e))?;
+        fs::write(&newfst, out_lines.join("\n") + "\n")
+            .map_err(|e| format!("failed to write new fstab temp: {}", e))?;
 
         // helper to shell-escape single-quoted string safely
         fn shell_escape_single(s: &str) -> String {
@@ -872,7 +1043,7 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
                 }
             }
         }
-// Removed stray/duplicate closing braces that caused syntax error
+        // Removed stray/duplicate closing braces that caused syntax error
 
         if let Some(mp) = partition_mountpoint {
             let esc = shell_escape_single(&mp);
@@ -884,14 +1055,26 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         }
 
         let backup = format!("/etc/fstab.lindy.bak.{}", now);
-        cmd.push_str(&format!("cp /etc/fstab {backup} && mv {new} /etc/fstab && sync && mount -a\n", backup = backup, new = newfst));
+        cmd.push_str(&format!(
+            "cp /etc/fstab {backup} && mv {new} /etc/fstab && sync && mount -a\n",
+            backup = backup,
+            new = newfst
+        ));
 
         // Run via pkexec so polkit prompt appears
         // Log command for debugging
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-            let _ = writeln!(f, "[{}] remove_fstab_block id={} cmd=---\n{}---", now, id, cmd);
-            Ok(())
-        });
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/lindy-debug.log")
+            .and_then(|mut f| {
+                let _ = writeln!(
+                    f,
+                    "[{}] remove_fstab_block id={} cmd=---\n{}---",
+                    now, id, cmd
+                );
+                Ok(())
+            });
 
         let output = match run_pkexec_with_script(&cmd) {
             Ok(o) => o,
@@ -912,10 +1095,22 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
             let _ = writeln!(f, "[{}] remove_fstab_block (pkexec-branch) id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
             Ok(())
         });
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-            let _ = writeln!(f, "[{}] remove_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---", now, id, output.status.code(), stdout, stderr);
-            Ok(())
-        });
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/lindy-debug.log")
+            .and_then(|mut f| {
+                let _ = writeln!(
+                    f,
+                    "[{}] remove_fstab_block id={} exit={:?} stdout=---\n{}--- stderr=---\n{}---",
+                    now,
+                    id,
+                    output.status.code(),
+                    stdout,
+                    stderr
+                );
+                Ok(())
+            });
 
         if output.status.success() {
             // remove metadata file if present
@@ -942,10 +1137,13 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
     } else {
         // Could not read /etc/fstab locally; build a privileged shell to extract and remove the block entirely under pkexec.
         let newtmp = format!("/tmp/lindy-newfst-{}-{}.tmp", id, now);
-    // AWK script to print bind targets between markers (ensure trailing newline so concatenation with subsequent shell code is safe)
-    // Use a non-reserved variable name `in_block` (some awk implementations treat `in` as the in-operator)
-    let awk_targets = format!(r#"awk 'BEGIN{{in_block=0}} $0 ~ /^# lindy BEGIN: {id}$/{{in_block=1; next}} $0 ~ /^# lindy END: {id}$/{{in_block=0; next}} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {{ print $2 }}' /etc/fstab > /tmp/lind_targets.{id}
-"#, id = id);
+        // AWK script to print bind targets between markers (ensure trailing newline so concatenation with subsequent shell code is safe)
+        // Use a non-reserved variable name `in_block` (some awk implementations treat `in` as the in-operator)
+        let awk_targets = format!(
+            r#"awk 'BEGIN{{in_block=0}} $0 ~ /^# lindy BEGIN: {id}$/{{in_block=1; next}} $0 ~ /^# lindy END: {id}$/{{in_block=0; next}} in_block && $0 ~ /[[:space:]]none[[:space:]]bind[[:space:]]/ {{ print $2 }}' /etc/fstab > /tmp/lind_targets.{id}
+"#,
+            id = id
+        );
         // AWK script to create new fstab without the block
         let awk_newfst = format!("awk 'BEGIN{{skip=0}} $0 ~ /^# lindy BEGIN: {id}$/{{skip=1; next}} $0 ~ /^# lindy END: {id}$/{{skip=0; next}} {{ if(!skip) print $0 }}' /etc/fstab > {newtmp}", id = id, newtmp = newtmp);
 
@@ -958,10 +1156,18 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
         cmd.push_str(&format!("cp /etc/fstab /etc/fstab.lindy.bak.{now} && mv {newtmp} /etc/fstab && sync && mount -a\n", now = now, newtmp = newtmp));
 
         // Log the constructed privileged command for debugging (append-only)
-        let _ = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/lindy-debug.log").and_then(|mut f| {
-            let _ = writeln!(f, "[{}] remove_fstab_block (pkexec-branch) id={} cmd=---\n{}---", now, id, cmd);
-            Ok(())
-        });
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/lindy-debug.log")
+            .and_then(|mut f| {
+                let _ = writeln!(
+                    f,
+                    "[{}] remove_fstab_block (pkexec-branch) id={} cmd=---\n{}---",
+                    now, id, cmd
+                );
+                Ok(())
+            });
 
         let output = match run_pkexec_with_script(&cmd) {
             Ok(o) => o,
@@ -1055,26 +1261,52 @@ fn list_partitions() -> Result<Vec<PartitionInfo>, String> {
     if !output.status.success() {
         return Err("lsblk returned non-zero status".into());
     }
-    let v: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("invalid lsblk json: {}", e))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("invalid lsblk json: {}", e))?;
 
     fn collect(vec: &mut Vec<PartitionInfo>, node: &serde_json::Value) {
         if let Some(name) = node.get("name").and_then(|x| x.as_str()) {
-            let fstype = node.get("fstype").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let uuid = node.get("uuid").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let label = node.get("label").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let mountpoint = node.get("mountpoint").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let size = node.get("size").and_then(|x| x.as_str()).map(|s| s.to_string());
-            vec.push(PartitionInfo { name: name.to_string(), fstype, uuid, label, mountpoint, size });
+            let fstype = node
+                .get("fstype")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let uuid = node
+                .get("uuid")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let label = node
+                .get("label")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let mountpoint = node
+                .get("mountpoint")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let size = node
+                .get("size")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            vec.push(PartitionInfo {
+                name: name.to_string(),
+                fstype,
+                uuid,
+                label,
+                mountpoint,
+                size,
+            });
         }
         if let Some(children) = node.get("children").and_then(|x| x.as_array()) {
-            for ch in children { collect(vec, ch); }
+            for ch in children {
+                collect(vec, ch);
+            }
         }
     }
 
     let mut flat = Vec::new();
     if let Some(blockdevices) = v.get("blockdevices").and_then(|x| x.as_array()) {
-        for dev in blockdevices { collect(&mut flat, dev); }
+        for dev in blockdevices {
+            collect(&mut flat, dev);
+        }
     }
     Ok(flat)
 }
@@ -1112,9 +1344,9 @@ struct WindowsPartition {
 fn detect_user_folders() -> Result<Vec<UserFolder>, String> {
     use std::env;
     use std::path::Path;
-    
+
     let home = env::var("HOME").map_err(|_| "Could not get HOME directory")?;
-    
+
     // Common folder mappings between Linux and Windows
     let folder_mappings = vec![
         ("Desktop", "Desktop"),
@@ -1125,13 +1357,13 @@ fn detect_user_folders() -> Result<Vec<UserFolder>, String> {
         ("Videos", "Videos"),
         ("Public", "Public"),
     ];
-    
+
     let mut folders = Vec::new();
-    
+
     for (linux_name, windows_name) in folder_mappings {
         let linux_path = format!("{}/{}", home, linux_name);
         let exists_linux = Path::new(&linux_path).exists();
-        
+
         folders.push(UserFolder {
             name: linux_name.to_string(),
             linux_path,
@@ -1140,7 +1372,7 @@ fn detect_user_folders() -> Result<Vec<UserFolder>, String> {
             exists_windows: false, // Will be determined when Windows partition is scanned
         });
     }
-    
+
     Ok(folders)
 }
 
@@ -1152,51 +1384,67 @@ fn suggest_folder_mappings(
 ) -> Result<Vec<FolderMapping>, String> {
     use std::env;
     use std::path::Path;
-    
+
     let home = env::var("HOME").map_err(|_| "Could not get HOME directory")?;
-    
+
     // Validate windows_base_path
     let base_path = Path::new(windows_base_path);
     if !base_path.exists() {
-        return Err(format!("Windows base path does not exist: {}", windows_base_path));
+        return Err(format!(
+            "Windows base path does not exist: {}",
+            windows_base_path
+        ));
     }
-    
+
     // Try to detect Windows username if not provided
     let win_user = if let Some(user) = username {
         user
     } else {
         // Try common Windows user folder patterns
         let users_path = base_path.join("Users");
-        
+
         if users_path.exists() {
             // Look for user folders (skip system folders)
-            let skip_folders = ["Public", "Default", "All Users", "Default User", "desktop.ini"];
-            
+            let skip_folders = [
+                "Public",
+                "Default",
+                "All Users",
+                "Default User",
+                "desktop.ini",
+            ];
+
             if let Ok(entries) = std::fs::read_dir(&users_path) {
                 for entry in entries.flatten() {
                     if let Ok(file_type) = entry.file_type() {
                         if file_type.is_dir() {
                             let folder_name = entry.file_name().to_string_lossy().to_string();
-                            if !skip_folders.contains(&folder_name.as_str()) 
-                                && !folder_name.starts_with('.') 
-                                && !folder_name.to_lowercase().starts_with("defaultapp") {
-                                return suggest_folder_mappings(windows_base_path, Some(folder_name));
+                            if !skip_folders.contains(&folder_name.as_str())
+                                && !folder_name.starts_with('.')
+                                && !folder_name.to_lowercase().starts_with("defaultapp")
+                            {
+                                return suggest_folder_mappings(
+                                    windows_base_path,
+                                    Some(folder_name),
+                                );
                             }
                         }
                     }
                 }
             }
         }
-        
+
         return Err("Could not detect Windows username. Please specify manually in the Windows Username field.".to_string());
     };
-    
+
     // Validate Windows user path exists
     let win_user_path = format!("{}/Users/{}", windows_base_path, win_user);
     if !Path::new(&win_user_path).exists() {
-        return Err(format!("Windows user folder does not exist: {}", win_user_path));
+        return Err(format!(
+            "Windows user folder does not exist: {}",
+            win_user_path
+        ));
     }
-    
+
     // Common folder mappings with additional variations
     let folder_mappings = vec![
         ("Desktop", vec!["Desktop"]),
@@ -1206,21 +1454,21 @@ fn suggest_folder_mappings(
         ("Pictures", vec!["Pictures", "My Pictures"]),
         ("Videos", vec!["Videos", "My Videos"]),
     ];
-    
+
     let mut mappings = Vec::new();
-    
+
     for (linux_name, windows_variants) in folder_mappings {
         let linux_path = format!("{}/{}", home, linux_name);
-        
+
         // Check if Linux folder exists
         if !Path::new(&linux_path).exists() {
             continue;
         }
-        
+
         // Try each Windows variant
         for windows_name in windows_variants {
             let windows_path = format!("{}/Users/{}/{}", windows_base_path, win_user, windows_name);
-            
+
             if Path::new(&windows_path).exists() {
                 mappings.push(FolderMapping {
                     linux_path: linux_path.clone(),
@@ -1231,11 +1479,14 @@ fn suggest_folder_mappings(
             }
         }
     }
-    
+
     if mappings.is_empty() {
-        return Err(format!("No matching folders found. Checked user: {} at path: {}/Users/{}", win_user, windows_base_path, win_user));
+        return Err(format!(
+            "No matching folders found. Checked user: {} at path: {}/Users/{}",
+            win_user, windows_base_path, win_user
+        ));
     }
-    
+
     Ok(mappings)
 }
 
@@ -1243,40 +1494,55 @@ fn suggest_folder_mappings(
 #[tauri::command]
 fn detect_windows_partitions() -> Result<Vec<WindowsPartition>, String> {
     // use std::path::Path; (removed unused import)
-    
+
     // Get partition list using lsblk
     let output = Command::new("lsblk")
         .args(["-J", "-o", "NAME,FSTYPE,UUID,LABEL,MOUNTPOINT,SIZE"])
         .output()
         .map_err(|e| format!("failed to run lsblk: {}", e))?;
-    
+
     if !output.status.success() {
         return Err("lsblk returned non-zero status".into());
     }
-    
-    let v: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("invalid lsblk json: {}", e))?;
-    
+
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("invalid lsblk json: {}", e))?;
+
     let mut windows_partitions = Vec::new();
-    
-    fn collect_windows_partitions(partitions: &mut Vec<WindowsPartition>, node: &serde_json::Value) {
+
+    fn collect_windows_partitions(
+        partitions: &mut Vec<WindowsPartition>,
+        node: &serde_json::Value,
+    ) {
         if let Some(fstype) = node.get("fstype").and_then(|x| x.as_str()) {
             // Look for NTFS partitions (Windows) or exFAT (could be Windows)
             if fstype == "ntfs" || fstype == "exfat" {
                 if let Some(uuid) = node.get("uuid").and_then(|x| x.as_str()) {
-                    let name = node.get("name").and_then(|x| x.as_str()).unwrap_or("unknown");
-                    let label = node.get("label").and_then(|x| x.as_str()).map(|s| s.to_string());
-                    let mount_point = node.get("mountpoint").and_then(|x| x.as_str()).map(|s| s.to_string());
-                    let size = node.get("size").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    let name = node
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("unknown");
+                    let label = node
+                        .get("label")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string());
+                    let mount_point = node
+                        .get("mountpoint")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string());
+                    let size = node
+                        .get("size")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string());
                     let is_mounted = mount_point.is_some();
-                    
+
                     // Check if this partition has a Users folder (indicating it's a Windows system partition)
                     let (has_users_folder, detected_users) = if let Some(ref mp) = mount_point {
                         check_for_windows_users(mp)
                     } else {
                         (false, Vec::new())
                     };
-                    
+
                     partitions.push(WindowsPartition {
                         uuid: uuid.to_string(),
                         label,
@@ -1290,20 +1556,20 @@ fn detect_windows_partitions() -> Result<Vec<WindowsPartition>, String> {
                 }
             }
         }
-        
+
         if let Some(children) = node.get("children").and_then(|x| x.as_array()) {
             for child in children {
                 collect_windows_partitions(partitions, child);
             }
         }
     }
-    
+
     if let Some(blockdevices) = v.get("blockdevices").and_then(|x| x.as_array()) {
         for dev in blockdevices {
             collect_windows_partitions(&mut windows_partitions, dev);
         }
     }
-    
+
     // Sort by likelihood of being the main Windows partition
     windows_partitions.sort_by(|a, b| {
         // Prioritize mounted partitions with Users folder
@@ -1320,36 +1586,43 @@ fn detect_windows_partitions() -> Result<Vec<WindowsPartition>, String> {
             }
         }
     });
-    
+
     Ok(windows_partitions)
 }
 
 fn check_for_windows_users(mount_point: &str) -> (bool, Vec<String>) {
     use std::path::Path;
-    
+
     let users_path = Path::new(mount_point).join("Users");
     if !users_path.exists() {
         return (false, Vec::new());
     }
-    
+
     let mut users = Vec::new();
-    let skip_folders = ["Public", "Default", "All Users", "Default User", "desktop.ini"];
-    
+    let skip_folders = [
+        "Public",
+        "Default",
+        "All Users",
+        "Default User",
+        "desktop.ini",
+    ];
+
     if let Ok(entries) = std::fs::read_dir(&users_path) {
         for entry in entries.flatten() {
             if let Ok(file_type) = entry.file_type() {
                 if file_type.is_dir() {
                     let folder_name = entry.file_name().to_string_lossy().to_string();
-                    if !skip_folders.contains(&folder_name.as_str()) 
-                        && !folder_name.starts_with('.') 
-                        && !folder_name.to_lowercase().starts_with("defaultapp") {
+                    if !skip_folders.contains(&folder_name.as_str())
+                        && !folder_name.starts_with('.')
+                        && !folder_name.to_lowercase().starts_with("defaultapp")
+                    {
                         users.push(folder_name);
                     }
                 }
             }
         }
     }
-    
+
     (true, users)
 }
 
@@ -1360,10 +1633,10 @@ fn auto_mount_and_map(
     username: Option<String>,
 ) -> Result<String, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
-    
+
     // Detect Windows partitions
     let windows_partitions = detect_windows_partitions()?;
-    
+
     if windows_partitions.is_empty() {
         let resp = serde_json::json!({
             "status": "error",
@@ -1372,14 +1645,15 @@ fn auto_mount_and_map(
         });
         return Ok(serde_json::to_string(&resp).unwrap());
     }
-    
+
     // Find the best Windows partition (prioritize those with Users folder)
-    let best_partition = windows_partitions.iter()
+    let best_partition = windows_partitions
+        .iter()
         .find(|p| p.has_users_folder)
         .or_else(|| windows_partitions.first())
         .ok_or("No suitable Windows partition found")?
         .clone();
-    
+
     let mount_point = if let Some(existing_mp) = &best_partition.mount_point {
         // Already mounted
         existing_mp.clone()
@@ -1391,17 +1665,29 @@ fn auto_mount_and_map(
         } else {
             format!("{}/{}", base, &best_partition.uuid[..8])
         };
-        
+
         // Build privileged script to create directory and mount
-        let _now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let _now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let mut script = String::new();
         script.push_str("set -e\n");
-        script.push_str(&format!("echo 'Creating mount directory: {}'\n", mount_path));
+        script.push_str(&format!(
+            "echo 'Creating mount directory: {}'\n",
+            mount_path
+        ));
         script.push_str(&format!("mkdir -p '{}'\n", mount_path));
-        script.push_str(&format!("echo 'Mounting partition {} to {}'\n", best_partition.uuid, mount_path));
-        script.push_str(&format!("mount -U '{}' '{}'\n", best_partition.uuid, mount_path));
+        script.push_str(&format!(
+            "echo 'Mounting partition {} to {}'\n",
+            best_partition.uuid, mount_path
+        ));
+        script.push_str(&format!(
+            "mount -U '{}' '{}'\n",
+            best_partition.uuid, mount_path
+        ));
         script.push_str(&format!("echo 'Mount successful: {}'\n", mount_path));
-        
+
         // Execute via pkexec
         let output = match run_pkexec_with_script(&script) {
             Ok(o) => o,
@@ -1416,10 +1702,10 @@ fn auto_mount_and_map(
                 return Ok(serde_json::to_string(&resp).unwrap());
             }
         };
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        
+
         if !output.status.success() {
             let resp = serde_json::json!({
                 "status": "error",
@@ -1432,10 +1718,10 @@ fn auto_mount_and_map(
             });
             return Ok(serde_json::to_string(&resp).unwrap());
         }
-        
+
         mount_path
     };
-    
+
     // Detect username if not provided
     let detected_username = if let Some(user) = username {
         user
@@ -1454,7 +1740,7 @@ fn auto_mount_and_map(
         }
         users[0].clone()
     };
-    
+
     // Generate folder mappings
     let mappings = match suggest_folder_mappings(&mount_point, Some(detected_username.clone())) {
         Ok(m) => m,
@@ -1470,7 +1756,7 @@ fn auto_mount_and_map(
             return Ok(serde_json::to_string(&resp).unwrap());
         }
     };
-    
+
     if mappings.is_empty() {
         let resp = serde_json::json!({
             "status": "error",
@@ -1482,7 +1768,7 @@ fn auto_mount_and_map(
         });
         return Ok(serde_json::to_string(&resp).unwrap());
     }
-    
+
     // Return success with all the information
     let resp = serde_json::json!({
         "status": "ok",
@@ -1493,7 +1779,7 @@ fn auto_mount_and_map(
         "mount_point": mount_point,
         "username": detected_username,
     });
-    
+
     Ok(serde_json::to_string(&resp).unwrap())
 }
 
@@ -1504,8 +1790,8 @@ fn auto_mount_and_map(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::env;
+    use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -1525,25 +1811,34 @@ mod tests {
         // prepend tmpdir to PATH so Command::new("pkexec") finds our fake
         let old_path = env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", tmpdir.display(), old_path);
-    unsafe { env::set_var("PATH", &new_path); }
+        unsafe {
+            env::set_var("PATH", &new_path);
+        }
 
-        let block = "# lindy BEGIN: testid\n/dev/fake /mnt/fake auto defaults 0 2\n# lindy END: testid\n";
+        let block =
+            "# lindy BEGIN: testid\n/dev/fake /mnt/fake auto defaults 0 2\n# lindy END: testid\n";
         let id = "testid";
         let targets = vec!["/mnt/fake".to_string()];
 
         // Call perform_mounts; since our fake pkexec exits with code 5, we expect
         // a structured JSON response with code `pkexec_failed` (not `applied`).
-        let res = perform_mounts(block, id, targets.clone(), None, None, false, Some(false)).expect("perform_mounts returned");
+        let res = perform_mounts(block, id, targets.clone(), None, None, false, Some(false))
+            .expect("perform_mounts returned");
         let v: serde_json::Value = serde_json::from_str(&res).expect("parse json");
         assert_eq!(v.get("status").and_then(|s| s.as_str()), Some("error"));
-        assert_eq!(v.get("code").and_then(|s| s.as_str()), Some("pkexec_failed"));
+        assert_eq!(
+            v.get("code").and_then(|s| s.as_str()),
+            Some("pkexec_failed")
+        );
 
         // cleanup
         let _ = fs::remove_file(&pk);
         let _ = fs::remove_dir_all(&tmpdir);
-    // restore PATH (best-effort)
-    // pass as reference to avoid moving the string and to satisfy some linters/analysis tools
-    unsafe { env::set_var("PATH", &old_path); }
+        // restore PATH (best-effort)
+        // pass as reference to avoid moving the string and to satisfy some linters/analysis tools
+        unsafe {
+            env::set_var("PATH", &old_path);
+        }
     }
 
     #[test]
@@ -1551,10 +1846,10 @@ mod tests {
         // Test that detect_user_folders returns expected folder structure
         let result = detect_user_folders();
         assert!(result.is_ok(), "detect_user_folders should succeed");
-        
+
         let folders = result.unwrap();
         assert!(!folders.is_empty(), "Should detect at least some folders");
-        
+
         // Check that common folders are included
         let folder_names: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
         assert!(folder_names.contains(&"Desktop"));
@@ -1567,7 +1862,7 @@ mod tests {
         // Test the structure of Windows partition detection (without requiring actual Windows partitions)
         // This tests the function signature and return type structure
         let result = detect_windows_partitions();
-        
+
         // The function should return Ok even if no Windows partitions are found
         match result {
             Ok(partitions) => {
@@ -1585,4 +1880,3 @@ mod tests {
         }
     }
 }
-
