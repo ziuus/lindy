@@ -1,8 +1,8 @@
-import { useEffect, useState, useContext } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import Container from "@mui/material/Container";
+
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
@@ -36,9 +36,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import CircularProgress from '@mui/material/CircularProgress';
 import SwipeableViews from "react-swipeable-views";
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import { ThemeContext } from './main';
+
 
 type Mapping = {
   id: number;
@@ -606,834 +604,171 @@ If this keeps happening, it might be a bug.`,
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 2 }}>
-      <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Grid item>
-          <Typography variant="h4" fontWeight={700}>Mount Manager</Typography>
-        </Grid>
-        <Grid item>
-          <Grid container alignItems="center" spacing={1} wrap="nowrap">
-            <Grid item><ModeToggle /></Grid>
-            <Grid item><AccentCycleButton /></Grid>
+    <div style={{ minHeight: '100vh', padding: '2rem' }}>
+      <div className="glass-panel" style={{ maxWidth: '1000px', margin: '0 auto', padding: '2rem' }}>
+        <Grid container alignItems="center" justifyContent="center" sx={{ mb: 4 }}>
+          <Grid item>
+            <Typography variant="h3" align="center" fontWeight={800} sx={{ letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #00f2ff 0%, #7000ff 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', mb: 1 }}>
+              Lindy
+            </Typography>
+            <Typography variant="subtitle1" align="center" sx={{ opacity: 0.7 }}>
+              Dual-boot limit breaker
+            </Typography>
           </Grid>
         </Grid>
-      </Grid>
-      <Paper variant="outlined" sx={{ mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
-          <Tab label="Main" />
-          <Tab label="Disks" />
-          <Tab label="Mappings" />
-        </Tabs>
-      </Paper>
-      <SwipeableViews index={tab} onChangeIndex={(i: number) => setTab(i)} enableMouseEvents>
-        {/* Main Tab */}
-        <div>
+        <Paper variant="outlined" sx={{ mb: 2 }}>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
+            <Tab label="Main" />
+            <Tab label="Disks" />
+            <Tab label="Mappings" />
+          </Tabs>
+        </Paper>
+        <SwipeableViews index={tab} onChangeIndex={(i: number) => setTab(i)} enableMouseEvents>
+          {/* Main Tab */}
+          <div>
 
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                {!skipPartition && (
-                  <>
-                    <FormControl fullWidth>
-                      <InputLabel id="uuid-label" shrink>Partition (UUID)</InputLabel>
-                      <Select
-                        labelId="uuid-label"
-                        label="Partition (UUID)"
+            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  {!skipPartition && (
+                    <>
+                      <FormControl fullWidth>
+                        <InputLabel id="uuid-label" shrink>Partition (UUID)</InputLabel>
+                        <Select
+                          labelId="uuid-label"
+                          label="Partition (UUID)"
+                          value={partitionUuid}
+                          onChange={(e) => {
+                            const v = (e.target.value as string).trim().toLowerCase();
+                            setPartitionUuid(v);
+                            // Suggest a base mount point when user picks a partition and baseMount is the default
+                            try {
+                              const p = parts.find((pp: any) => pp.uuid === v);
+                              if (p && (baseMount === '/mnt/shared' || baseMount.trim() === '')) {
+                                const suggested = p.label ? `/mnt/${p.label}` : `/mnt/${v.slice(0, 8)}`;
+                                setBaseMount(suggested);
+                              }
+                            } catch (e) {
+                              // ignore
+                            }
+                          }}
+                          displayEmpty
+                          renderValue={(selected) => {
+                            if (!selected) {
+                              return <em>Select a partition or type UUID below…</em>;
+                            }
+                            const part = parts.find(p => p.uuid === selected);
+                            if (part) {
+                              return `${selected} ${part.label ? `(${part.label})` : ''} ${part.fstype ? `· ${part.fstype}` : ''}`;
+                            }
+                            return selected as string;
+                          }}
+                        >
+                          {parts
+                            .filter(p => p.uuid)
+                            .map((p) => (
+                              <MenuItem key={p.uuid} value={p.uuid}>
+                                {p.uuid} {p.label ? `(${p.label})` : ""} {p.fstype ? `· ${p.fstype}` : ""}
+                              </MenuItem>
+                            ))}
+                        </Select>
+                      </FormControl>
+                      <TextField
+                        sx={{ mt: 1 }}
+                        fullWidth
+                        label="UUID (manual)"
+                        placeholder="53337bda-2dc1-4a14-a8d9-c1702ddd33d6"
                         value={partitionUuid}
-                        onChange={(e) => {
-                          const v = (e.target.value as string).trim().toLowerCase();
-                          setPartitionUuid(v);
-                          // Suggest a base mount point when user picks a partition and baseMount is the default
-                          try {
-                            const p = parts.find((pp: any) => pp.uuid === v);
-                            if (p && (baseMount === '/mnt/shared' || baseMount.trim() === '')) {
-                              const suggested = p.label ? `/mnt/${p.label}` : `/mnt/${v.slice(0, 8)}`;
-                              setBaseMount(suggested);
-                            }
-                          } catch (e) {
-                            // ignore
-                          }
-                        }}
-                        displayEmpty
-                        renderValue={(selected) => {
-                          if (!selected) {
-                            return <em>Select a partition or type UUID below…</em>;
-                          }
-                          const part = parts.find(p => p.uuid === selected);
-                          if (part) {
-                            return `${selected} ${part.label ? `(${part.label})` : ''} ${part.fstype ? `· ${part.fstype}` : ''}`;
-                          }
-                          return selected as string;
-                        }}
-                      >
-                        {parts
-                          .filter(p => p.uuid)
-                          .map((p) => (
-                            <MenuItem key={p.uuid} value={p.uuid}>
-                              {p.uuid} {p.label ? `(${p.label})` : ""} {p.fstype ? `· ${p.fstype}` : ""}
-                            </MenuItem>
-                          ))}
-                      </Select>
-                    </FormControl>
-                    <TextField
-                      sx={{ mt: 1 }}
-                      fullWidth
-                      label="UUID (manual)"
-                      placeholder="53337bda-2dc1-4a14-a8d9-c1702ddd33d6"
-                      value={partitionUuid}
-                      onChange={(e) => setPartitionUuid(e.currentTarget.value.trim().toLowerCase())}
-                      error={partitionUuid.trim() !== '' && !isValidPartitionId(partitionUuid.trim())}
-                      helperText={partitionUuid.trim() !== '' && !isValidPartitionId(partitionUuid.trim()) ? 'Unrecognized partition id format (accepted: UUID, 4-4 FAT id, 16/32 hex)' : ''}
-                    />
-                  </>
-                )}
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Base mount point"
-                  placeholder="/mnt/shared or /mnt/popos"
-                  value={baseMount}
-                  onChange={(e) => setBaseMount(e.currentTarget.value)}
-                />
-                <Grid container alignItems="center" sx={{ mt: 1 }}>
-                  <Grid item>
-                    <input
-                      id="skip-partition"
-                      type="checkbox"
-                      checked={skipPartition}
-                      onChange={e => setSkipPartition(e.target.checked)}
-                      style={{ marginRight: 6 }}
-                    />
-                  </Grid>
-                  <Grid item>
-                    <label htmlFor="skip-partition" style={{ cursor: 'pointer', fontSize: 13 }}>
-                      Skip partition mount (already mounted)
-                    </label>
-                  </Grid>
+                        onChange={(e) => setPartitionUuid(e.currentTarget.value.trim().toLowerCase())}
+                        error={partitionUuid.trim() !== '' && !isValidPartitionId(partitionUuid.trim())}
+                        helperText={partitionUuid.trim() !== '' && !isValidPartitionId(partitionUuid.trim()) ? 'Unrecognized partition id format (accepted: UUID, 4-4 FAT id, 16/32 hex)' : ''}
+                      />
+                    </>
+                  )}
                 </Grid>
-              </Grid>
-            </Grid>
-          </Paper>
-
-          <Accordion sx={{ mb: 2 }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle1">Auto-Map User Folders</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Typography variant="body2" gutterBottom>
-                Two ways to automatically map common user folders between Linux and Windows:
-              </Typography>
-
-              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                🚀 Smart Auto-Map (Recommended)
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                Automatically detects Windows partitions, mounts them if needed, and creates folder mappings in one click.
-                No manual configuration required!
-              </Typography>
-
-              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                ⚙️ Manual Auto-Map
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                For when you want more control - requires you to set the base mount point and optionally specify the Windows username.
-              </Typography>
-
-              <Typography variant="body2" sx={{ mt: 2 }}>
-                <strong>Supported folders:</strong> Desktop, Documents, Downloads, Pictures, Music, Videos
-              </Typography>
-            </AccordionDetails>
-          </Accordion>
-
-          <Accordion sx={{ mb: 2 }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle1">How to find your partition UUID</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Typography variant="body2" gutterBottom>
-                You can list your partitions and their UUIDs using:
-              </Typography>
-              <pre className="fstab-preview"><code>lsblk -o NAME,FSTYPE,UUID,LABEL,MOUNTPOINT,SIZE
-                blkid</code></pre>
-              <Typography variant="body2" gutterBottom>
-                Pick the UUID of the shared data partition (e.g., ext4 for Linux↔Linux, or ntfs for Linux↔Windows).
-                We auto-detected entries above when possible.
-              </Typography>
-            </AccordionDetails>
-          </Accordion>
-
-          <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 1, mt: 2 }}>
-            <Grid item>
-              <Typography variant="h6">Mappings</Typography>
-            </Grid>
-            <Grid item>
-              <Grid container spacing={1}>
-                <Grid item>
-                  <Button variant="contained" color="primary" onClick={addRow}>Add Mapping</Button>
-                </Grid>
-                <Grid item>
-                  <Button
-                    variant="contained"
-                    color="success"
-                    onClick={smartAutoMap}
-                    disabled={smartAutoMapLoading}
-                  >
-                    {smartAutoMapLoading ? (
-                      <>
-                        <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
-                        Detecting...
-                      </>
-                    ) : (
-                      'Smart Auto-Map'
-                    )}
-                  </Button>
-                </Grid>
-                <Grid item>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    onClick={() => {
-                      detectUserFolders();
-                      setAutoMappingOpen(true);
-                    }}
-                  >
-                    Manual Auto-Map
-                  </Button>
-                </Grid>
-              </Grid>
-            </Grid>
-          </Grid>
-          <Grid container direction="column" spacing={1} sx={{ mb: 2 }}>
-            {rows.length === 0 && (
-              <Grid item>
-                <Typography variant="body2" color="text.secondary">
-                  Click Add Mapping to select folders.
-                </Typography>
-              </Grid>
-            )}
-            {rows.map((row) => (
-              <Grid item key={row.id}>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Grid container spacing={2} alignItems="center">
-                    <Grid item xs={12} md={5}>
-                      <TextField
-                        fullWidth
-                        label="Source (inside partition)"
-                        value={row.src ?? ""}
-                        placeholder="Choose folder…"
-                        InputProps={{ readOnly: true }}
-                        onClick={() => pickDir(row.id, "src")}
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="Base mount point"
+                    placeholder="/mnt/shared or /mnt/popos"
+                    value={baseMount}
+                    onChange={(e) => setBaseMount(e.currentTarget.value)}
+                  />
+                  <Grid container alignItems="center" sx={{ mt: 1 }}>
+                    <Grid item>
+                      <input
+                        id="skip-partition"
+                        type="checkbox"
+                        checked={skipPartition}
+                        onChange={e => setSkipPartition(e.target.checked)}
+                        style={{ marginRight: 6 }}
                       />
                     </Grid>
-                    <Grid item xs={12} md={5}>
-                      <TextField
-                        fullWidth
-                        label="Target (local bind point)"
-                        value={row.target ?? ""}
-                        placeholder="Choose folder…"
-                        InputProps={{ readOnly: true }}
-                        onClick={() => pickDir(row.id, "target")}
-                      />
-                    </Grid>
-                    <Grid item xs={6} md={1}>
-                      <Button
-                        fullWidth
-                        variant="outlined"
-                        onClick={() => mountRow(row)}
-                        disabled={!row.src || !row.target}
-                      >
-                        Mount
-                      </Button>
-                    </Grid>
-                    <Grid item xs={6} md={1}>
-                      <IconButton aria-label="remove" onClick={async () => {
-                        // Try to remove the mapping by target in a single backend call.
-                        // The new `remove_block_for_target` command will locate the block
-                        // and perform the privileged removal (one pkexec invocation).
-                        if (row.target) {
-                          try {
-                            setOpResultHint(null);
-                            const res = await invoke<string>('remove_block_for_target', { target: row.target, force: true });
-                            let parsed: any = null;
-                            try { parsed = JSON.parse(res); } catch (_) { parsed = null; }
-                            if (parsed && parsed.status === 'ok') {
-                              setOpResultMessage(`Removed mapping for ${row.target}.`);
-                              refreshInstalledBlocks();
-                            } else if (parsed && parsed.status === 'error') {
-                              setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
-                              setOpResultHint((parsed.stderr || parsed.stdout) || null);
-                            } else {
-                              setOpResultMessage(`Remove result:\n${res}`);
-                            }
-                            setOpResultOpen(true);
-                            return;
-                          } catch (e: any) {
-                            console.warn('remove_block_for_target failed', e);
-                            // fallback to previous behavior: check installedBlocks and show removal dialog
-                            const installed = installedBlocks.find(b => b.targets && b.targets.includes(row.target!));
-                            if (installed) {
-                              setRemoveDialogId(installed.id);
-                              setRemoveDialogForce(true);
-                              setRemoveDialogOpen(true);
-                              return;
-                            }
-                          }
-                        }
-                        removeRow(row.id);
-                      }}>
-                        <DeleteIcon />
-                      </IconButton>
+                    <Grid item>
+                      <label htmlFor="skip-partition" style={{ cursor: 'pointer', fontSize: 13 }}>
+                        Skip partition mount (already mounted)
+                      </label>
                     </Grid>
                   </Grid>
-                </Paper>
-              </Grid>
-            ))}
-          </Grid>
-
-          {rows.some((r) => r.src && r.target) && (
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-                <Grid item>
-                  <Typography variant="h6">Preview</Typography>
-                </Grid>
-                <Grid item>
-                  <Button variant="contained" onClick={() => {
-                    const text = document.querySelector('.fstab-preview code')?.textContent || '';
-                    navigator.clipboard.writeText(text).then(() => setCopied(true));
-                  }}>Copy fstab block</Button>
-                </Grid>
-              </Grid>
-              <Typography variant="subtitle2" gutterBottom>Bind mappings</Typography>
-              <ul>
-                {rows
-                  .filter((r) => r.src && r.target)
-                  .map((r) => (
-                    <li key={`out-${r.id}`}>
-                      <code>{r.target}</code> → <code>{r.src}</code>
-                    </li>
-                  ))}
-              </ul>
-              {preview.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom>fstab preview</Typography>
-                  <pre className="fstab-preview">
-                    <code>{(() => {
-                      const unique = new Set<string>();
-                      const blocks: string[] = [];
-                      // Collect a single partition line and many bind lines.
-                      preview.forEach(block => {
-                        block.split('\n').forEach(line => {
-                          if (line.includes(' auto ') && !Array.from(unique).some(l => l === line)) {
-                            unique.add(line);
-                          } else if (line.includes(' none bind ')) {
-                            blocks.push(line);
-                          }
-                        });
-                      });
-                      return Array.from(unique).concat(blocks).join('\n');
-                    })()}</code>
-                  </pre>
-                </>
-              )}
-            </Paper>
-          )}
-          {/* Mount confirmation dialog (script preview + copy/download) */}
-          <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle>Confirm mount actions</DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" gutterBottom>
-                The following script will be created. You can copy or download it and run it with sudo, or run it via the elevated run option (coming next).
-              </Typography>
-              <pre className="fstab-preview" style={{ maxHeight: 360, overflow: 'auto' }}>
-                <code>{dialogScript}</code>
-              </pre>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setDialogOpen(false)}>Close</Button>
-              <Button onClick={copyDialogScript} startIcon={<ContentCopyIcon />}>Copy script</Button>
-              <Button onClick={downloadDialogScript}>Download script</Button>
-              {/* Make permanent: append block to /etc/fstab (requires elevation) */}
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={async () => {
-                  setOpResultHint(null);
-                  // Build fstab block for all mappings
-                  const id = Math.random().toString(36).slice(2, 10);
-                  const lines: string[] = [];
-                  lines.push(`# lindy BEGIN: ${id}`);
-                  if (!skipPartition && partitionUuid && partitionUuid.trim() !== '') {
-                    lines.push(`UUID=${partitionUuid} ${baseMount} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=10 0 2`);
-                  }
-                  const targets: string[] = [];
-                  rows.filter(r => r.src && r.target).forEach(r => {
-                    lines.push(`${r.src} ${r.target} none bind 0 0`);
-                    targets.push(r.target as string);
-                  });
-                  lines.push(`# lindy END: ${id}`);
-                  const block = lines.join('\n') + '\n';
-                  try {
-                    setApplyInProgress(true);
-                    const res = await invoke<string>('perform_mounts', {
-                      block,
-                      id,
-                      targets,
-                      partitionUuid: skipPartition ? null : (partitionUuid || null),
-                      baseMount: baseMount || null,
-                      addPartitionLine: (!skipPartition && !!partitionUuid && partitionUuid.trim() !== ''),
-                    });
-                    let parsed: any = null;
-                    try { parsed = JSON.parse(res); } catch (err) { parsed = null; }
-                    if (parsed && parsed.status === 'adoptable' && parsed.code === 'adoptable_existing_block') {
-                      // Show adopt confirmation dialog
-                      setAdoptInfo({ id: parsed.id, block: parsed.block, targets: parsed.targets || [] });
-                      setAdoptDialogOpen(true);
-                    } else if (parsed && parsed.status === 'ok') {
-                      setApplyResultMessage(`Mapping created and activated (id: ${id}).`);
-                      pushLog(`Applied fstab block ${id}: ${parsed.message || parsed.code}`);
-                      refreshInstalledBlocks();
-                    } else if (parsed && parsed.status === 'error') {
-                      // Friendly handling of known codes
-                      if (parsed.code === 'spawn_pkexec_failed') {
-                        setApplyResultMessage('Elevation helper (pkexec) not available or failed to start. Run the following sudo command in a terminal:');
-                        setOpResultHint(`sudo sh -c "cat > /tmp/new_block <<'EOF'\n${block.replace(/\$/g, '\\$')}\nEOF\ncat /tmp/new_block >> /etc/fstab && mount -a"`);
-                      } else if (parsed.code === 'pkexec_failed') {
-                        setApplyResultMessage('Privileged operation failed while applying block. See details below. You can try the sudo fallback:');
-                        setOpResultHint(`sudo sh -c "cat > /tmp/new_block <<'EOF'\n${block.replace(/\$/g, '\\$')}\nEOF\ncat /tmp/new_block >> /etc/fstab && mount -a"`);
-                      } else {
-                        setApplyResultMessage(`Failed to apply mapping: ${parsed.message || parsed.code || 'unknown error'}`);
-                        setOpResultHint((parsed && (parsed.stderr || parsed.stdout)) || null);
-                      }
-                    } else {
-                      // Fallback: unknown response format
-                      setApplyResultMessage(`Apply fstab result:\n${res}`);
-                    }
-                    setApplyResultOpen(true);
-                    setDialogOpen(false);
-                  } catch (e: any) {
-                    const text = String(e);
-                    setApplyResultMessage(`Failed to apply fstab block:\n${text}`);
-                    pushLog(`Failed apply fstab block ${id}: ${String(e)}`);
-                    setApplyResultOpen(true);
-                  } finally {
-                    setApplyInProgress(false);
-                  }
-                }}
-              >
-                {applyInProgress ? (
-                  <>
-                    <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} /> Applying...
-                  </>
-                ) : (
-                  'Make permanent'
-                )}
-              </Button>
-            </DialogActions>
-          </Dialog>
-        </div>
-        {/* Disks Tab */}
-        <div>
-          <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-            <Grid item><Typography variant="h6">Persistent Mounts (installed)</Typography></Grid>
-            <Grid item>
-              <Button size="small" onClick={() => refreshInstalledBlocks()}>Refresh</Button>
-            </Grid>
-          </Grid>
-          {installedBlocks.length === 0 && (
-            <Typography variant="body2" color="text.secondary">No persistent mounts installed via lindy.</Typography>
-          )}
-          {installedBlocks.map(b => (
-            <Paper key={b.id} variant="outlined" sx={{ p: 1, mb: 1 }}>
-              <Grid container alignItems="center" spacing={1}>
-                <Grid item xs={8}>
-                  <Typography variant="body2"><code>{b.id}</code> {b.managed ? <span style={{ fontSize: 12, marginLeft: 8, color: '#1976d2' }}>(managed)</span> : null}</Typography>
-                  <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap' }}>{b.text}</Typography>
-                </Grid>
-                <Grid item xs={4}>
-                  <Button size="small" color="error" onClick={() => {
-                    setRemoveDialogId(b.id);
-                    setRemoveDialogTarget((b.targets && b.targets.length > 0) ? b.targets[0] : null);
-                    setRemoveDialogForce(false);
-                    setRemoveDialogOpen(true);
-                  }}>Remove</Button>
                 </Grid>
               </Grid>
             </Paper>
-          ))}
 
-          <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
-            <Typography variant="subtitle1">Recent operations</Typography>
-            {operationsLog.length === 0 && (
-              <Typography variant="body2" color="text.secondary">No operations yet.</Typography>
-            )}
-            <ul style={{ marginTop: 8 }}>
-              {operationsLog.map((l, idx) => (
-                <li key={idx}><code style={{ whiteSpace: 'pre-wrap' }}>{l}</code></li>
-              ))}
-            </ul>
-          </Paper>
-
-          <Dialog open={removeDialogOpen} onClose={() => setRemoveDialogOpen(false)}>
-            <DialogTitle>Confirm remove persistent mount</DialogTitle>
-            <DialogContent>
-              <Typography>Are you sure you want to remove the persistent mount <code>{removeDialogId}</code>? This will attempt to unmount targets and remove the fstab block.</Typography>
-              <Grid container alignItems="center" spacing={1} sx={{ mt: 1 }}>
-                <Grid item>
-                  <input id="force-unmount" type="checkbox" checked={removeDialogForce} onChange={e => setRemoveDialogForce(e.target.checked)} />
-                </Grid>
-                <Grid item>
-                  <label htmlFor="force-unmount">Use lazy unmount if busy (umount -l)</label>
-                </Grid>
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setRemoveDialogOpen(false)}>Cancel</Button>
-              <Button color="error" onClick={async () => {
-                setOpResultHint(null);
-                if (!removeDialogId) return;
-                try {
-                  // Prefer single-step removal by target when we have a representative target.
-                  let res: string;
-                  if (removeDialogTarget) {
-                    res = await invoke<string>('remove_block_for_target', { target: removeDialogTarget, force: removeDialogForce });
-                  } else {
-                    res = await invoke<string>('remove_fstab_block', { id: removeDialogId, force: removeDialogForce });
-                  }
-                  let parsed: any = null;
-                  try { parsed = JSON.parse(res); } catch (_) { parsed = null; }
-                  if (parsed && parsed.status === 'ok') {
-                    setOpResultMessage(`Removed mapping ${removeDialogId || removeDialogTarget}.`);
-                    setPendingForceId(null);
-                    refreshInstalledBlocks();
-                  } else if (parsed && parsed.status === 'error') {
-                    if (parsed.code === 'spawn_pkexec_failed') {
-                      setOpResultMessage('Elevation helper (pkexec) not available. Run the following sudo command as root:');
-                      setOpResultHint(`sudo sh -c "cp /etc/fstab /etc/fstab.lindy.manual.bak.$(date +%s) && sed -e '/^# lindy BEGIN: ${removeDialogId}/, /^# lindy END: ${removeDialogId}/d' /etc/fstab > /tmp/fstab.clean.$$ && cp /tmp/fstab.clean.$$ /etc/fstab && sync && mount -a"`);
-                      setPendingForceId(null);
-                    } else if (parsed.code === 'pkexec_failed') {
-                      // pkexec ran but returned non-zero; it may have printed stderr with hints (busy etc)
-                      const out = (parsed.stderr || parsed.stdout || parsed.message || '').toString();
-                      if (/busy/i.test(out)) {
-                        setOpResultMessage(`Unmount reported device busy for ${removeDialogId}.`);
-                        setOpResultHint('Use `sudo fuser -mv <target>` to list processes holding the mount, or retry with Force (lazy unmount).');
-                        setPendingForceId(removeDialogId);
-                      } else {
-                        setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
-                        setOpResultHint(out || null);
-                        setPendingForceId(null);
-                      }
-                    } else {
-                      setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
-                      setOpResultHint((parsed.stderr || parsed.stdout) || null);
-                      setPendingForceId(null);
-                    }
-                  } else {
-                    // unknown response
-                    setOpResultMessage(`Remove result:\n${res}`);
-                  }
-                  setOpResultOpen(true);
-                  setRemoveDialogOpen(false);
-                } catch (e: any) {
-                  const text = String(e);
-                  setOpResultMessage(`Failed to remove:\n${text}`);
-                  setOpResultOpen(true);
-                  setRemoveDialogOpen(false);
-                }
-              }}>Remove</Button>
-            </DialogActions>
-          </Dialog>
-          <Dialog open={adoptDialogOpen} onClose={() => { setAdoptDialogOpen(false); setAdoptInfo(null); }} fullWidth maxWidth="md">
-            <DialogTitle>Adopt existing mapping</DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" gutterBottom>
-                The fstab contains an existing lindy block that matches your requested target. Do you want to adopt it so the app can manage it?
-              </Typography>
-              <Typography variant="caption">Block ID: <code>{adoptInfo?.id}</code></Typography>
-              <pre className="fstab-preview" style={{ maxHeight: 360, overflow: 'auto' }}>
-                <code>{adoptInfo?.block}</code>
-              </pre>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => { setAdoptDialogOpen(false); setAdoptInfo(null); }}>Cancel</Button>
-              <Button variant="contained" onClick={async () => {
-                if (!adoptInfo) return;
-                try {
-                  const resp = await invoke<string>('adopt_block', { id: adoptInfo.id });
-                  let p: any = null;
-                  try { p = JSON.parse(resp); } catch (_) { p = null; }
-                  if (p && p.status === 'ok') {
-                    setApplyResultMessage(`Adopted block ${adoptInfo.id}.`);
-                    pushLog(`Adopted existing block ${adoptInfo.id}`);
-                    refreshInstalledBlocks();
-                  } else {
-                    setApplyResultMessage(`Failed to adopt: ${resp}`);
-                  }
-                } catch (e: any) {
-                  setApplyResultMessage(`Adopt failed: ${String(e)}`);
-                } finally {
-                  setAdoptDialogOpen(false);
-                  setAdoptInfo(null);
-                  setApplyResultOpen(true);
-                }
-              }}>Adopt</Button>
-            </DialogActions>
-          </Dialog>
-
-          <Dialog open={opResultOpen} onClose={() => setOpResultOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle>Operation result</DialogTitle>
-            <DialogContent>
-              <pre style={{ whiteSpace: 'pre-wrap' }}>{opResultMessage}</pre>
-              {opResultHint && (
-                <Paper variant="outlined" sx={{ p: 1, mt: 1 }}>
-                  <Typography variant="caption" display="block" sx={{ mb: 1 }}>Suggested command / hint</Typography>
-                  <code style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{opResultHint}</code>
-                  <Button size="small" onClick={() => { navigator.clipboard.writeText(opResultHint || ''); }}>Copy</Button>
-                </Paper>
-              )}
-            </DialogContent>
-            <DialogActions>
-              {pendingForceId && (
-                <Button color="error" onClick={async () => {
-                  try {
-                    const id = pendingForceId;
-                    setOpResultOpen(false);
-                    const res = await invoke<string>('remove_fstab_block', { id, force: true });
-                    setOpResultMessage(`Force remove result:\n${res}`);
-                    setOpResultHint(null);
-                    setPendingForceId(null);
-                    setOpResultOpen(true);
-                    refreshInstalledBlocks();
-                  } catch (e: any) {
-                    setOpResultMessage(`Force remove failed:\n${String(e)}`);
-                    setPendingForceId(null);
-                    setOpResultOpen(true);
-                  }
-                }}>Force unmount (lazy)</Button>
-              )}
-              <Button onClick={() => setOpResultOpen(false)}>OK</Button>
-            </DialogActions>
-          </Dialog>
-          <Dialog open={applyResultOpen} onClose={() => setApplyResultOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle>Apply result</DialogTitle>
-            <DialogContent>
-              <pre style={{ whiteSpace: 'pre-wrap' }}>{applyResultMessage}</pre>
-              {opResultHint && (
-                <Paper variant="outlined" sx={{ p: 1, mt: 1 }}>
-                  <Typography variant="caption" display="block" sx={{ mb: 1 }}>Suggested command / hint</Typography>
-                  <code style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{opResultHint}</code>
-                  <Button size="small" onClick={() => { navigator.clipboard.writeText(opResultHint || ''); }}>Copy</Button>
-                </Paper>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setApplyResultOpen(false)}>OK</Button>
-            </DialogActions>
-          </Dialog>
-
-          {/* Auto-mapping dialog */}
-          <Dialog open={autoMappingOpen} onClose={() => setAutoMappingOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle>Manual Auto-Map User Folders</DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" gutterBottom>
-                Automatically map common user folders between Linux and Windows. This will detect your Linux home folders and match them with Windows user folders.
-              </Typography>
-
-              {detectedFolders.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                    Detected Linux Folders:
-                  </Typography>
-                  <ul>
-                    {detectedFolders.map((folder, idx) => (
-                      <li key={idx}>
-                        <code>{folder.linux_path}</code> {folder.exists_linux ? '✓' : '✗'}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-              <TextField
-                fullWidth
-                label="Windows Username (optional)"
-                placeholder="e.g., John, Administrator"
-                value={windowsUsername}
-                onChange={(e) => setWindowsUsername(e.target.value)}
-                helperText="Leave empty to auto-detect. Required if auto-detection fails."
-                sx={{ mt: 2, mb: 2 }}
-              />
-
-              <Button
-                variant="outlined"
-                onClick={suggestFolderMappings}
-                disabled={autoMappingLoading || !baseMount}
-                fullWidth
-                sx={{ mb: 2 }}
-              >
-                {autoMappingLoading ? (
-                  <>
-                    <CircularProgress size={18} sx={{ mr: 1 }} />
-                    Scanning...
-                  </>
-                ) : (
-                  'Scan for Mappings'
-                )}
-              </Button>
-
-              {suggestedMappings.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    Found {suggestedMappings.length} folder mappings:
-                  </Typography>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Folder Type</TableCell>
-                        <TableCell>Linux Path</TableCell>
-                        <TableCell>Windows Path</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {suggestedMappings.map((mapping, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>{mapping.folder_type}</TableCell>
-                          <TableCell><code>{mapping.linux_path}</code></TableCell>
-                          <TableCell><code>{mapping.windows_path}</code></TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </>
-              )}
-
-              {suggestedMappings.length === 0 && baseMount && !autoMappingLoading && (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                  No matching folders found. Make sure the Windows partition is mounted at the correct base path and contains a Users folder.
+            <Accordion sx={{ mb: 2 }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1">Auto-Map User Folders</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" gutterBottom>
+                  Two ways to automatically map common user folders between Linux and Windows:
                 </Typography>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setAutoMappingOpen(false)}>Cancel</Button>
-              {suggestedMappings.length > 0 && (
-                <Button
-                  variant="contained"
-                  onClick={applyAutoMappings}
-                  color="primary"
-                >
-                  Add {suggestedMappings.length} Mappings
-                </Button>
-              )}
-            </DialogActions>
-          </Dialog>
 
-          {/* Error Details Dialog */}
-          <Dialog open={errorDialogOpen} onClose={() => setErrorDialogOpen(false)} fullWidth maxWidth="md">
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {errorDetails?.title || 'Error'}
-            </DialogTitle>
-            <DialogContent>
-              <Typography variant="body1" gutterBottom>
-                {errorDetails?.message}
-              </Typography>
-
-              <Paper variant="outlined" sx={{ p: 2, mt: 2, backgroundColor: 'action.hover' }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  💡 How to fix this:
+                <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                  🚀 Smart Auto-Map (Recommended)
                 </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                  {errorDetails?.solution}
+                <Typography variant="body2" gutterBottom>
+                  Automatically detects Windows partitions, mounts them if needed, and creates folder mappings in one click.
+                  No manual configuration required!
                 </Typography>
-              </Paper>
 
-              {errorDetails?.technical && (
-                <Accordion sx={{ mt: 2 }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="subtitle2">🔧 Technical Details (for troubleshooting)</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Paper variant="outlined" sx={{ p: 1, backgroundColor: 'grey.100' }}>
-                      <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
-                        {errorDetails.technical}
-                      </Typography>
-                    </Paper>
-                    <Button
-                      size="small"
-                      onClick={() => navigator.clipboard.writeText(errorDetails.technical || '')}
-                      sx={{ mt: 1 }}
-                    >
-                      Copy Technical Details
-                    </Button>
-                  </AccordionDetails>
-                </Accordion>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setErrorDialogOpen(false)}>Close</Button>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  setErrorDialogOpen(false);
-                  setAutoMappingOpen(true);
-                }}
-              >
-                Try Manual Auto-Map
-              </Button>
-            </DialogActions>
-          </Dialog>
+                <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                  ⚙️ Manual Auto-Map
+                </Typography>
+                <Typography variant="body2" gutterBottom>
+                  For when you want more control - requires you to set the base mount point and optionally specify the Windows username.
+                </Typography>
 
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-              <Grid item><Typography variant="h6">Disks & Partitions</Typography></Grid>
+                <Typography variant="body2" sx={{ mt: 2 }}>
+                  <strong>Supported folders:</strong> Desktop, Documents, Downloads, Pictures, Music, Videos
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+
+            <Accordion sx={{ mb: 2 }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1">How to find your partition UUID</Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" gutterBottom>
+                  You can list your partitions and their UUIDs using:
+                </Typography>
+                <pre className="fstab-preview"><code>lsblk -o NAME,FSTYPE,UUID,LABEL,MOUNTPOINT,SIZE
+                  blkid</code></pre>
+                <Typography variant="body2" gutterBottom>
+                  Pick the UUID of the shared data partition (e.g., ext4 for Linux↔Linux, or ntfs for Linux↔Windows).
+                  We auto-detected entries above when possible.
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+
+            <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 1, mt: 2 }}>
               <Grid item>
-                <Tooltip title="Refresh"><IconButton onClick={refreshPartitions}><RefreshIcon /></IconButton></Tooltip>
+                <Typography variant="h6">Mappings</Typography>
               </Grid>
-            </Grid>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Label</TableCell>
-                  <TableCell>UUID</TableCell>
-                  <TableCell>Mount</TableCell>
-                  <TableCell>Size</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {parts.map(p => (
-                  <TableRow key={p.name}>
-                    <TableCell>{p.name}</TableCell>
-                    <TableCell>{p.fstype || '-'}</TableCell>
-                    <TableCell>{p.label || '-'}</TableCell>
-                    <TableCell>{p.uuid ? <code>{p.uuid}</code> : '-'}</TableCell>
-                    <TableCell>{p.mountpoint || '-'}</TableCell>
-                    <TableCell>{p.size || '-'}</TableCell>
-                    <TableCell align="right">
-                      {p.uuid && (
-                        <Tooltip title="Copy UUID">
-                          <IconButton size="small" onClick={() => { navigator.clipboard.writeText(p.uuid); setCopied(true); }}>
-                            <ContentCopyIcon fontSize="inherit" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Paper>
-        </div>
-        {/* Mappings Tab */}
-        <div>
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-              <Grid item><Typography variant="h6">Existing Mappings</Typography></Grid>
               <Grid item>
                 <Grid container spacing={1}>
                   <Grid item>
-                    <Button variant="contained" onClick={addRow}>Add Mapping</Button>
+                    <Button variant="contained" color="primary" onClick={addRow}>Add Mapping</Button>
                   </Grid>
                   <Grid item>
                     <Button
@@ -1467,67 +802,703 @@ If this keeps happening, it might be a bug.`,
                 </Grid>
               </Grid>
             </Grid>
-            <Grid container direction="column" spacing={1}>
+            <Grid container direction="column" spacing={1} sx={{ mb: 2 }}>
               {rows.length === 0 && (
                 <Grid item>
-                  <Typography variant="body2" color="text.secondary">No mappings yet. Use Add Mapping.</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Click Add Mapping to select folders.
+                  </Typography>
                 </Grid>
               )}
-              {rows.map(row => (
+              {rows.map((row) => (
                 <Grid item key={row.id}>
-                  <Paper variant="outlined" sx={{ p: 1 }}>
-                    <Grid container spacing={1} alignItems="center">
-                      <Grid item xs={12} md={5}><code>{row.src || '—'}</code></Grid>
-                      <Grid item xs={12} md={5}><code>{row.target || '—'}</code></Grid>
-                      <Grid item xs={6} md={1}>
-                        <Button size="small" variant="outlined" disabled={!row.src || !row.target} onClick={() => mountRow(row)}>Mount</Button>
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid item xs={12} md={5}>
+                        <TextField
+                          fullWidth
+                          label="Source (inside partition)"
+                          value={row.src ?? ""}
+                          placeholder="Choose folder…"
+                          InputProps={{ readOnly: true }}
+                          onClick={() => pickDir(row.id, "src")}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={5}>
+                        <TextField
+                          fullWidth
+                          label="Target (local bind point)"
+                          value={row.target ?? ""}
+                          placeholder="Choose folder…"
+                          InputProps={{ readOnly: true }}
+                          onClick={() => pickDir(row.id, "target")}
+                        />
                       </Grid>
                       <Grid item xs={6} md={1}>
-                        <IconButton size="small" aria-label="remove" onClick={() => removeRow(row.id)}><DeleteIcon fontSize="small" /></IconButton>
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          onClick={() => mountRow(row)}
+                          disabled={!row.src || !row.target}
+                        >
+                          Mount
+                        </Button>
+                      </Grid>
+                      <Grid item xs={6} md={1}>
+                        <IconButton aria-label="remove" onClick={async () => {
+                          // Try to remove the mapping by target in a single backend call.
+                          // The new `remove_block_for_target` command will locate the block
+                          // and perform the privileged removal (one pkexec invocation).
+                          if (row.target) {
+                            try {
+                              setOpResultHint(null);
+                              const res = await invoke<string>('remove_block_for_target', { target: row.target, force: true });
+                              let parsed: any = null;
+                              try { parsed = JSON.parse(res); } catch (_) { parsed = null; }
+                              if (parsed && parsed.status === 'ok') {
+                                setOpResultMessage(`Removed mapping for ${row.target}.`);
+                                refreshInstalledBlocks();
+                              } else if (parsed && parsed.status === 'error') {
+                                setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
+                                setOpResultHint((parsed.stderr || parsed.stdout) || null);
+                              } else {
+                                setOpResultMessage(`Remove result:\n${res}`);
+                              }
+                              setOpResultOpen(true);
+                              return;
+                            } catch (e: any) {
+                              console.warn('remove_block_for_target failed', e);
+                              // fallback to previous behavior: check installedBlocks and show removal dialog
+                              const installed = installedBlocks.find(b => b.targets && b.targets.includes(row.target!));
+                              if (installed) {
+                                setRemoveDialogId(installed.id);
+                                setRemoveDialogForce(true);
+                                setRemoveDialogOpen(true);
+                                return;
+                              }
+                            }
+                          }
+                          removeRow(row.id);
+                        }}>
+                          <DeleteIcon />
+                        </IconButton>
                       </Grid>
                     </Grid>
                   </Paper>
                 </Grid>
               ))}
             </Grid>
-          </Paper>
-        </div>
-      </SwipeableViews>
-      <Snackbar open={copied} autoHideDuration={2500} onClose={() => setCopied(false)}>
-        <Alert severity="success" variant="filled" onClose={() => setCopied(false)}>Copied</Alert>
-      </Snackbar>
-    </Container>
+
+            {rows.some((r) => r.src && r.target) && (
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Grid item>
+                    <Typography variant="h6">Preview</Typography>
+                  </Grid>
+                  <Grid item>
+                    <Button variant="contained" onClick={() => {
+                      const text = document.querySelector('.fstab-preview code')?.textContent || '';
+                      navigator.clipboard.writeText(text).then(() => setCopied(true));
+                    }}>Copy fstab block</Button>
+                  </Grid>
+                </Grid>
+                <Typography variant="subtitle2" gutterBottom>Bind mappings</Typography>
+                <ul>
+                  {rows
+                    .filter((r) => r.src && r.target)
+                    .map((r) => (
+                      <li key={`out-${r.id}`}>
+                        <code>{r.target}</code> → <code>{r.src}</code>
+                      </li>
+                    ))}
+                </ul>
+                {preview.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" gutterBottom>fstab preview</Typography>
+                    <pre className="fstab-preview">
+                      <code>{(() => {
+                        const unique = new Set<string>();
+                        const blocks: string[] = [];
+                        // Collect a single partition line and many bind lines.
+                        preview.forEach(block => {
+                          block.split('\n').forEach(line => {
+                            if (line.includes(' auto ') && !Array.from(unique).some(l => l === line)) {
+                              unique.add(line);
+                            } else if (line.includes(' none bind ')) {
+                              blocks.push(line);
+                            }
+                          });
+                        });
+                        return Array.from(unique).concat(blocks).join('\n');
+                      })()}</code>
+                    </pre>
+                  </>
+                )}
+              </Paper>
+            )}
+            {/* Mount confirmation dialog (script preview + copy/download) */}
+            <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="md">
+              <DialogTitle>Confirm mount actions</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" gutterBottom>
+                  The following script will be created. You can copy or download it and run it with sudo, or run it via the elevated run option (coming next).
+                </Typography>
+                <pre className="fstab-preview" style={{ maxHeight: 360, overflow: 'auto' }}>
+                  <code>{dialogScript}</code>
+                </pre>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setDialogOpen(false)}>Close</Button>
+                <Button onClick={copyDialogScript} startIcon={<ContentCopyIcon />}>Copy script</Button>
+                <Button onClick={downloadDialogScript}>Download script</Button>
+                {/* Make permanent: append block to /etc/fstab (requires elevation) */}
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={async () => {
+                    setOpResultHint(null);
+                    // Build fstab block for all mappings
+                    const id = Math.random().toString(36).slice(2, 10);
+                    const lines: string[] = [];
+                    lines.push(`# lindy BEGIN: ${id}`);
+                    if (!skipPartition && partitionUuid && partitionUuid.trim() !== '') {
+                      lines.push(`UUID=${partitionUuid} ${baseMount} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=10 0 2`);
+                    }
+                    const targets: string[] = [];
+                    rows.filter(r => r.src && r.target).forEach(r => {
+                      lines.push(`${r.src} ${r.target} none bind 0 0`);
+                      targets.push(r.target as string);
+                    });
+                    lines.push(`# lindy END: ${id}`);
+                    const block = lines.join('\n') + '\n';
+                    try {
+                      setApplyInProgress(true);
+                      const res = await invoke<string>('perform_mounts', {
+                        block,
+                        id,
+                        targets,
+                        partitionUuid: skipPartition ? null : (partitionUuid || null),
+                        baseMount: baseMount || null,
+                        addPartitionLine: (!skipPartition && !!partitionUuid && partitionUuid.trim() !== ''),
+                      });
+                      let parsed: any = null;
+                      try { parsed = JSON.parse(res); } catch (err) { parsed = null; }
+                      if (parsed && parsed.status === 'adoptable' && parsed.code === 'adoptable_existing_block') {
+                        // Show adopt confirmation dialog
+                        setAdoptInfo({ id: parsed.id, block: parsed.block, targets: parsed.targets || [] });
+                        setAdoptDialogOpen(true);
+                      } else if (parsed && parsed.status === 'ok') {
+                        setApplyResultMessage(`Mapping created and activated (id: ${id}).`);
+                        pushLog(`Applied fstab block ${id}: ${parsed.message || parsed.code}`);
+                        refreshInstalledBlocks();
+                      } else if (parsed && parsed.status === 'error') {
+                        // Friendly handling of known codes
+                        if (parsed.code === 'spawn_pkexec_failed') {
+                          setApplyResultMessage('Elevation helper (pkexec) not available or failed to start. Run the following sudo command in a terminal:');
+                          setOpResultHint(`sudo sh -c "cat > /tmp/new_block <<'EOF'\n${block.replace(/\$/g, '\\$')}\nEOF\ncat /tmp/new_block >> /etc/fstab && mount -a"`);
+                        } else if (parsed.code === 'pkexec_failed') {
+                          setApplyResultMessage('Privileged operation failed while applying block. See details below. You can try the sudo fallback:');
+                          setOpResultHint(`sudo sh -c "cat > /tmp/new_block <<'EOF'\n${block.replace(/\$/g, '\\$')}\nEOF\ncat /tmp/new_block >> /etc/fstab && mount -a"`);
+                        } else {
+                          setApplyResultMessage(`Failed to apply mapping: ${parsed.message || parsed.code || 'unknown error'}`);
+                          setOpResultHint((parsed && (parsed.stderr || parsed.stdout)) || null);
+                        }
+                      } else {
+                        // Fallback: unknown response format
+                        setApplyResultMessage(`Apply fstab result:\n${res}`);
+                      }
+                      setApplyResultOpen(true);
+                      setDialogOpen(false);
+                    } catch (e: any) {
+                      const text = String(e);
+                      setApplyResultMessage(`Failed to apply fstab block:\n${text}`);
+                      pushLog(`Failed apply fstab block ${id}: ${String(e)}`);
+                      setApplyResultOpen(true);
+                    } finally {
+                      setApplyInProgress(false);
+                    }
+                  }}
+                >
+                  {applyInProgress ? (
+                    <>
+                      <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} /> Applying...
+                    </>
+                  ) : (
+                    'Make permanent'
+                  )}
+                </Button>
+              </DialogActions>
+            </Dialog>
+          </div>
+          {/* Disks Tab */}
+          <div>
+            <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+              <Grid item><Typography variant="h6">Persistent Mounts (installed)</Typography></Grid>
+              <Grid item>
+                <Button size="small" onClick={() => refreshInstalledBlocks()}>Refresh</Button>
+              </Grid>
+            </Grid>
+            {installedBlocks.length === 0 && (
+              <Typography variant="body2" color="text.secondary">No persistent mounts installed via lindy.</Typography>
+            )}
+            {installedBlocks.map(b => (
+              <Paper key={b.id} variant="outlined" sx={{ p: 1, mb: 1 }}>
+                <Grid container alignItems="center" spacing={1}>
+                  <Grid item xs={8}>
+                    <Typography variant="body2"><code>{b.id}</code> {b.managed ? <span style={{ fontSize: 12, marginLeft: 8, color: '#1976d2' }}>(managed)</span> : null}</Typography>
+                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap' }}>{b.text}</Typography>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Button size="small" color="error" onClick={() => {
+                      setRemoveDialogId(b.id);
+                      setRemoveDialogTarget((b.targets && b.targets.length > 0) ? b.targets[0] : null);
+                      setRemoveDialogForce(false);
+                      setRemoveDialogOpen(true);
+                    }}>Remove</Button>
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
+
+            <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+              <Typography variant="subtitle1">Recent operations</Typography>
+              {operationsLog.length === 0 && (
+                <Typography variant="body2" color="text.secondary">No operations yet.</Typography>
+              )}
+              <ul style={{ marginTop: 8 }}>
+                {operationsLog.map((l, idx) => (
+                  <li key={idx}><code style={{ whiteSpace: 'pre-wrap' }}>{l}</code></li>
+                ))}
+              </ul>
+            </Paper>
+
+            <Dialog open={removeDialogOpen} onClose={() => setRemoveDialogOpen(false)}>
+              <DialogTitle>Confirm remove persistent mount</DialogTitle>
+              <DialogContent>
+                <Typography>Are you sure you want to remove the persistent mount <code>{removeDialogId}</code>? This will attempt to unmount targets and remove the fstab block.</Typography>
+                <Grid container alignItems="center" spacing={1} sx={{ mt: 1 }}>
+                  <Grid item>
+                    <input id="force-unmount" type="checkbox" checked={removeDialogForce} onChange={e => setRemoveDialogForce(e.target.checked)} />
+                  </Grid>
+                  <Grid item>
+                    <label htmlFor="force-unmount">Use lazy unmount if busy (umount -l)</label>
+                  </Grid>
+                </Grid>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setRemoveDialogOpen(false)}>Cancel</Button>
+                <Button color="error" onClick={async () => {
+                  setOpResultHint(null);
+                  if (!removeDialogId) return;
+                  try {
+                    // Prefer single-step removal by target when we have a representative target.
+                    let res: string;
+                    if (removeDialogTarget) {
+                      res = await invoke<string>('remove_block_for_target', { target: removeDialogTarget, force: removeDialogForce });
+                    } else {
+                      res = await invoke<string>('remove_fstab_block', { id: removeDialogId, force: removeDialogForce });
+                    }
+                    let parsed: any = null;
+                    try { parsed = JSON.parse(res); } catch (_) { parsed = null; }
+                    if (parsed && parsed.status === 'ok') {
+                      setOpResultMessage(`Removed mapping ${removeDialogId || removeDialogTarget}.`);
+                      setPendingForceId(null);
+                      refreshInstalledBlocks();
+                    } else if (parsed && parsed.status === 'error') {
+                      if (parsed.code === 'spawn_pkexec_failed') {
+                        setOpResultMessage('Elevation helper (pkexec) not available. Run the following sudo command as root:');
+                        setOpResultHint(`sudo sh -c "cp /etc/fstab /etc/fstab.lindy.manual.bak.$(date +%s) && sed -e '/^# lindy BEGIN: ${removeDialogId}/, /^# lindy END: ${removeDialogId}/d' /etc/fstab > /tmp/fstab.clean.$$ && cp /tmp/fstab.clean.$$ /etc/fstab && sync && mount -a"`);
+                        setPendingForceId(null);
+                      } else if (parsed.code === 'pkexec_failed') {
+                        // pkexec ran but returned non-zero; it may have printed stderr with hints (busy etc)
+                        const out = (parsed.stderr || parsed.stdout || parsed.message || '').toString();
+                        if (/busy/i.test(out)) {
+                          setOpResultMessage(`Unmount reported device busy for ${removeDialogId}.`);
+                          setOpResultHint('Use `sudo fuser -mv <target>` to list processes holding the mount, or retry with Force (lazy unmount).');
+                          setPendingForceId(removeDialogId);
+                        } else {
+                          setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
+                          setOpResultHint(out || null);
+                          setPendingForceId(null);
+                        }
+                      } else {
+                        setOpResultMessage(`Failed to remove mapping: ${parsed.message || parsed.code}`);
+                        setOpResultHint((parsed.stderr || parsed.stdout) || null);
+                        setPendingForceId(null);
+                      }
+                    } else {
+                      // unknown response
+                      setOpResultMessage(`Remove result:\n${res}`);
+                    }
+                    setOpResultOpen(true);
+                    setRemoveDialogOpen(false);
+                  } catch (e: any) {
+                    const text = String(e);
+                    setOpResultMessage(`Failed to remove:\n${text}`);
+                    setOpResultOpen(true);
+                    setRemoveDialogOpen(false);
+                  }
+                }}>Remove</Button>
+              </DialogActions>
+            </Dialog>
+            <Dialog open={adoptDialogOpen} onClose={() => { setAdoptDialogOpen(false); setAdoptInfo(null); }} fullWidth maxWidth="md">
+              <DialogTitle>Adopt existing mapping</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" gutterBottom>
+                  The fstab contains an existing lindy block that matches your requested target. Do you want to adopt it so the app can manage it?
+                </Typography>
+                <Typography variant="caption">Block ID: <code>{adoptInfo?.id}</code></Typography>
+                <pre className="fstab-preview" style={{ maxHeight: 360, overflow: 'auto' }}>
+                  <code>{adoptInfo?.block}</code>
+                </pre>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => { setAdoptDialogOpen(false); setAdoptInfo(null); }}>Cancel</Button>
+                <Button variant="contained" onClick={async () => {
+                  if (!adoptInfo) return;
+                  try {
+                    const resp = await invoke<string>('adopt_block', { id: adoptInfo.id });
+                    let p: any = null;
+                    try { p = JSON.parse(resp); } catch (_) { p = null; }
+                    if (p && p.status === 'ok') {
+                      setApplyResultMessage(`Adopted block ${adoptInfo.id}.`);
+                      pushLog(`Adopted existing block ${adoptInfo.id}`);
+                      refreshInstalledBlocks();
+                    } else {
+                      setApplyResultMessage(`Failed to adopt: ${resp}`);
+                    }
+                  } catch (e: any) {
+                    setApplyResultMessage(`Adopt failed: ${String(e)}`);
+                  } finally {
+                    setAdoptDialogOpen(false);
+                    setAdoptInfo(null);
+                    setApplyResultOpen(true);
+                  }
+                }}>Adopt</Button>
+              </DialogActions>
+            </Dialog>
+
+            <Dialog open={opResultOpen} onClose={() => setOpResultOpen(false)} fullWidth maxWidth="md">
+              <DialogTitle>Operation result</DialogTitle>
+              <DialogContent>
+                <pre style={{ whiteSpace: 'pre-wrap' }}>{opResultMessage}</pre>
+                {opResultHint && (
+                  <Paper variant="outlined" sx={{ p: 1, mt: 1 }}>
+                    <Typography variant="caption" display="block" sx={{ mb: 1 }}>Suggested command / hint</Typography>
+                    <code style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{opResultHint}</code>
+                    <Button size="small" onClick={() => { navigator.clipboard.writeText(opResultHint || ''); }}>Copy</Button>
+                  </Paper>
+                )}
+              </DialogContent>
+              <DialogActions>
+                {pendingForceId && (
+                  <Button color="error" onClick={async () => {
+                    try {
+                      const id = pendingForceId;
+                      setOpResultOpen(false);
+                      const res = await invoke<string>('remove_fstab_block', { id, force: true });
+                      setOpResultMessage(`Force remove result:\n${res}`);
+                      setOpResultHint(null);
+                      setPendingForceId(null);
+                      setOpResultOpen(true);
+                      refreshInstalledBlocks();
+                    } catch (e: any) {
+                      setOpResultMessage(`Force remove failed:\n${String(e)}`);
+                      setPendingForceId(null);
+                      setOpResultOpen(true);
+                    }
+                  }}>Force unmount (lazy)</Button>
+                )}
+                <Button onClick={() => setOpResultOpen(false)}>OK</Button>
+              </DialogActions>
+            </Dialog>
+            <Dialog open={applyResultOpen} onClose={() => setApplyResultOpen(false)} fullWidth maxWidth="md">
+              <DialogTitle>Apply result</DialogTitle>
+              <DialogContent>
+                <pre style={{ whiteSpace: 'pre-wrap' }}>{applyResultMessage}</pre>
+                {opResultHint && (
+                  <Paper variant="outlined" sx={{ p: 1, mt: 1 }}>
+                    <Typography variant="caption" display="block" sx={{ mb: 1 }}>Suggested command / hint</Typography>
+                    <code style={{ display: 'block', whiteSpace: 'pre-wrap' }}>{opResultHint}</code>
+                    <Button size="small" onClick={() => { navigator.clipboard.writeText(opResultHint || ''); }}>Copy</Button>
+                  </Paper>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setApplyResultOpen(false)}>OK</Button>
+              </DialogActions>
+            </Dialog>
+
+            {/* Auto-mapping dialog */}
+            <Dialog open={autoMappingOpen} onClose={() => setAutoMappingOpen(false)} fullWidth maxWidth="md">
+              <DialogTitle>Manual Auto-Map User Folders</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" gutterBottom>
+                  Automatically map common user folders between Linux and Windows. This will detect your Linux home folders and match them with Windows user folders.
+                </Typography>
+
+                {detectedFolders.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                      Detected Linux Folders:
+                    </Typography>
+                    <ul>
+                      {detectedFolders.map((folder, idx) => (
+                        <li key={idx}>
+                          <code>{folder.linux_path}</code> {folder.exists_linux ? '✓' : '✗'}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                <TextField
+                  fullWidth
+                  label="Windows Username (optional)"
+                  placeholder="e.g., John, Administrator"
+                  value={windowsUsername}
+                  onChange={(e) => setWindowsUsername(e.target.value)}
+                  helperText="Leave empty to auto-detect. Required if auto-detection fails."
+                  sx={{ mt: 2, mb: 2 }}
+                />
+
+                <Button
+                  variant="outlined"
+                  onClick={suggestFolderMappings}
+                  disabled={autoMappingLoading || !baseMount}
+                  fullWidth
+                  sx={{ mb: 2 }}
+                >
+                  {autoMappingLoading ? (
+                    <>
+                      <CircularProgress size={18} sx={{ mr: 1 }} />
+                      Scanning...
+                    </>
+                  ) : (
+                    'Scan for Mappings'
+                  )}
+                </Button>
+
+                {suggestedMappings.length > 0 && (
+                  <>
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      Found {suggestedMappings.length} folder mappings:
+                    </Typography>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Folder Type</TableCell>
+                          <TableCell>Linux Path</TableCell>
+                          <TableCell>Windows Path</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {suggestedMappings.map((mapping, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{mapping.folder_type}</TableCell>
+                            <TableCell><code>{mapping.linux_path}</code></TableCell>
+                            <TableCell><code>{mapping.windows_path}</code></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+
+                {suggestedMappings.length === 0 && baseMount && !autoMappingLoading && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                    No matching folders found. Make sure the Windows partition is mounted at the correct base path and contains a Users folder.
+                  </Typography>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setAutoMappingOpen(false)}>Cancel</Button>
+                {suggestedMappings.length > 0 && (
+                  <Button
+                    variant="contained"
+                    onClick={applyAutoMappings}
+                    color="primary"
+                  >
+                    Add {suggestedMappings.length} Mappings
+                  </Button>
+                )}
+              </DialogActions>
+            </Dialog>
+
+            {/* Error Details Dialog */}
+            <Dialog open={errorDialogOpen} onClose={() => setErrorDialogOpen(false)} fullWidth maxWidth="md">
+              <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {errorDetails?.title || 'Error'}
+              </DialogTitle>
+              <DialogContent>
+                <Typography variant="body1" gutterBottom>
+                  {errorDetails?.message}
+                </Typography>
+
+                <Paper variant="outlined" sx={{ p: 2, mt: 2, backgroundColor: 'action.hover' }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    💡 How to fix this:
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                    {errorDetails?.solution}
+                  </Typography>
+                </Paper>
+
+                {errorDetails?.technical && (
+                  <Accordion sx={{ mt: 2 }}>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Typography variant="subtitle2">🔧 Technical Details (for troubleshooting)</Typography>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <Paper variant="outlined" sx={{ p: 1, backgroundColor: 'grey.100' }}>
+                        <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                          {errorDetails.technical}
+                        </Typography>
+                      </Paper>
+                      <Button
+                        size="small"
+                        onClick={() => navigator.clipboard.writeText(errorDetails.technical || '')}
+                        sx={{ mt: 1 }}
+                      >
+                        Copy Technical Details
+                      </Button>
+                    </AccordionDetails>
+                  </Accordion>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setErrorDialogOpen(false)}>Close</Button>
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    setErrorDialogOpen(false);
+                    setAutoMappingOpen(true);
+                  }}
+                >
+                  Try Manual Auto-Map
+                </Button>
+              </DialogActions>
+            </Dialog>
+
+            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+                <Grid item><Typography variant="h6">Disks & Partitions</Typography></Grid>
+                <Grid item>
+                  <Tooltip title="Refresh"><IconButton onClick={refreshPartitions}><RefreshIcon /></IconButton></Tooltip>
+                </Grid>
+              </Grid>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Label</TableCell>
+                    <TableCell>UUID</TableCell>
+                    <TableCell>Mount</TableCell>
+                    <TableCell>Size</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {parts.map(p => (
+                    <TableRow key={p.name}>
+                      <TableCell>{p.name}</TableCell>
+                      <TableCell>{p.fstype || '-'}</TableCell>
+                      <TableCell>{p.label || '-'}</TableCell>
+                      <TableCell>{p.uuid ? <code>{p.uuid}</code> : '-'}</TableCell>
+                      <TableCell>{p.mountpoint || '-'}</TableCell>
+                      <TableCell>{p.size || '-'}</TableCell>
+                      <TableCell align="right">
+                        {p.uuid && (
+                          <Tooltip title="Copy UUID">
+                            <IconButton size="small" onClick={() => { navigator.clipboard.writeText(p.uuid); setCopied(true); }}>
+                              <ContentCopyIcon fontSize="inherit" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          </div>
+          {/* Mappings Tab */}
+          <div>
+            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+                <Grid item><Typography variant="h6">Existing Mappings</Typography></Grid>
+                <Grid item>
+                  <Grid container spacing={1}>
+                    <Grid item>
+                      <Button variant="contained" onClick={addRow}>Add Mapping</Button>
+                    </Grid>
+                    <Grid item>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        onClick={smartAutoMap}
+                        disabled={smartAutoMapLoading}
+                      >
+                        {smartAutoMapLoading ? (
+                          <>
+                            <CircularProgress size={18} color="inherit" sx={{ mr: 1 }} />
+                            Detecting...
+                          </>
+                        ) : (
+                          'Smart Auto-Map'
+                        )}
+                      </Button>
+                    </Grid>
+                    <Grid item>
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={() => {
+                          detectUserFolders();
+                          setAutoMappingOpen(true);
+                        }}
+                      >
+                        Manual Auto-Map
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </Grid>
+              </Grid>
+              <Grid container direction="column" spacing={1}>
+                {rows.length === 0 && (
+                  <Grid item>
+                    <Typography variant="body2" color="text.secondary">No mappings yet. Use Add Mapping.</Typography>
+                  </Grid>
+                )}
+                {rows.map(row => (
+                  <Grid item key={row.id}>
+                    <Paper variant="outlined" sx={{ p: 1 }}>
+                      <Grid container spacing={1} alignItems="center">
+                        <Grid item xs={12} md={5}><code>{row.src || '—'}</code></Grid>
+                        <Grid item xs={12} md={5}><code>{row.target || '—'}</code></Grid>
+                        <Grid item xs={6} md={1}>
+                          <Button size="small" variant="outlined" disabled={!row.src || !row.target} onClick={() => mountRow(row)}>Mount</Button>
+                        </Grid>
+                        <Grid item xs={6} md={1}>
+                          <IconButton size="small" aria-label="remove" onClick={() => removeRow(row.id)}><DeleteIcon fontSize="small" /></IconButton>
+                        </Grid>
+                      </Grid>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            </Paper>
+          </div>
+        </SwipeableViews>
+        <Snackbar open={copied} autoHideDuration={2500} onClose={() => setCopied(false)}>
+          <Alert severity="success" variant="filled" onClose={() => setCopied(false)}>Copied</Alert>
+        </Snackbar>
+      </div>
+    </div>
   );
 }
 
-function ModeToggle() {
-  const { mode, toggleMode: toggle } = useContext(ThemeContext);
-  return (
-    <Tooltip title={mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
-      <IconButton onClick={toggle} color="primary" aria-label="toggle theme">
-        {mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
-      </IconButton>
-    </Tooltip>
-  );
-}
 
-function AccentCycleButton() {
-  const { accent, cycleAccent } = useContext(ThemeContext);
-  return (
-    <Tooltip title={`Accent: ${accent} (click to cycle)`}>
-      <Button size="small" onClick={cycleAccent} sx={{ minWidth: 32, px: 1 }}>
-        <span
-          style={{
-            width: 16,
-            height: 16,
-            borderRadius: '50%',
-            background: 'currentColor',
-            display: 'inline-block',
-          }}
-        />
-      </Button>
-    </Tooltip>
-  );
-}
 
 export default App;
