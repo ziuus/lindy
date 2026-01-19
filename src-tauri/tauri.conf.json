@@ -35,7 +35,7 @@
       "deb": {
         "depends": [
           "psmisc",
-          "policykit-1",
+          "pkexec | policykit-1",
           "libwebkit2gtk-4.1-0",
           "libappindicator3-1",
           "librsvg2-common"
