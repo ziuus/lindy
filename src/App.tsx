@@ -81,6 +81,8 @@ function App() {
   const [parts, setParts] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState(0);
+  // Track which rows are currently being mounted (single or multiple)
+  const [pendingMountRows, setPendingMountRows] = useState<Mapping[]>([]);
 
   const addRow = () => {
     setRows((r) => [...r, { id: Date.now() }]);
@@ -101,7 +103,8 @@ function App() {
   };
 
   const mountRow = (row: Mapping) => {
-    // Open confirm dialog with generated script
+    // Open confirm dialog with generated script for THIS row only
+    setPendingMountRows([row]);
     const script = buildScriptForRow(row);
     setDialogScript(script);
     setDialogOpen(true);
@@ -281,6 +284,8 @@ function App() {
   const [smartAutoMapLoading, setSmartAutoMapLoading] = useState(false);
   const [errorDialogOpen, setErrorDialogOpen] = useState(false);
   const [errorDetails, setErrorDetails] = useState<{ title: string, message: string, solution: string, technical?: string } | null>(null);
+  const [autoMapSuccessOpen, setAutoMapSuccessOpen] = useState(false);
+  const [autoMapResult, setAutoMapResult] = useState<any>(null);
 
   const pushLog = (msg: string) => {
     setOperationsLog(l => [msg, ...l].slice(0, 50));
@@ -544,20 +549,17 @@ If this keeps happening, it might be a bug.`,
 
         setRows(prev => [...prev, ...newMappings]);
 
-        // Show success message with details
-        const partitionInfo = result.windows_partition.label
-          ? `${result.windows_partition.label} (${result.windows_partition.uuid.substring(0, 8)}...)`
-          : result.windows_partition.uuid.substring(0, 8) + '...';
-
-        alert(`✅ Smart Auto-Map Successful!\n\n` +
-          `🔍 Detected: ${partitionInfo}\n` +
-          `📁 Mount Point: ${result.mount_point}\n` +
-          `👤 Windows User: ${result.username}\n` +
-          `🔗 Added ${result.mappings.length} folder mappings\n\n` +
-          `Next steps:\n` +
-          `• Review the mappings below\n` +
-          `• Click "Make permanent" to save to /etc/fstab\n` +
-          `• Your folders will be automatically synced!`);
+        // Open success dialog instead of alert
+        setAutoMapResult({
+          partitionInfo: result.windows_partition.label
+            ? `${result.windows_partition.label} (${result.windows_partition.uuid.substring(0, 8)}...)`
+            : result.windows_partition.uuid.substring(0, 8) + '...',
+          mountPoint: result.mount_point,
+          username: result.username,
+          count: result.mappings.length,
+          newMappings: newMappings // Pass these so we can "Mount All Now" immediately
+        });
+        setAutoMapSuccessOpen(true);
       }
 
     } catch (e: any) {
@@ -835,14 +837,31 @@ If this keeps happening, it might be a bug.`,
                         />
                       </Grid>
                       <Grid item xs={6} md={1}>
-                        <Button
-                          fullWidth
-                          variant="outlined"
-                          onClick={() => mountRow(row)}
-                          disabled={!row.src || !row.target}
-                        >
-                          Mount
-                        </Button>
+                        {(() => {
+                          const mounted = installedBlocks.some(b => b.targets && b.targets.includes(row.target || ''));
+                          return (
+                            <Button
+                              fullWidth
+                              variant={mounted ? "outlined" : "outlined"}
+                              color={mounted ? "error" : "primary"}
+                              onClick={() => {
+                                if (mounted) {
+                                  if (row.target) {
+                                    setRemoveDialogId(null);
+                                    setRemoveDialogTarget(row.target);
+                                    setRemoveDialogForce(false);
+                                    setRemoveDialogOpen(true);
+                                  }
+                                } else {
+                                  mountRow(row);
+                                }
+                              }}
+                              disabled={!row.src || !row.target}
+                            >
+                              {mounted ? "Unmount" : "Mount"}
+                            </Button>
+                          );
+                        })()}
                       </Grid>
                       <Grid item xs={6} md={1}>
                         <IconButton aria-label="remove" onClick={async () => {
@@ -965,7 +984,8 @@ If this keeps happening, it might be a bug.`,
                       lines.push(`UUID=${partitionUuid} ${baseMount} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=10 0 2`);
                     }
                     const targets: string[] = [];
-                    rows.filter(r => r.src && r.target).forEach(r => {
+                    // Use pendingMountRows instead of all rows
+                    pendingMountRows.filter(r => r.src && r.target).forEach(r => {
                       lines.push(`${r.src} ${r.target} none bind 0 0`);
                       targets.push(r.target as string);
                     });
@@ -1380,6 +1400,64 @@ If this keeps happening, it might be a bug.`,
               </DialogActions>
             </Dialog>
 
+            {/* Smart Auto-Map Success Dialog */}
+            <Dialog open={autoMapSuccessOpen} onClose={() => setAutoMapSuccessOpen(false)} fullWidth maxWidth="sm">
+              <DialogTitle>✅ Smart Auto-Map Successful!</DialogTitle>
+              <DialogContent>
+                <Typography variant="body1" gutterBottom>
+                  Detected and mapped your Windows folders successfully.
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 2, mt: 2, mb: 2, backgroundColor: 'action.hover' }}>
+                  <Grid container spacing={1}>
+                    <Grid item xs={5}><Typography variant="body2" color="text.secondary">Partition:</Typography></Grid>
+                    <Grid item xs={7}><Typography variant="body2">{autoMapResult?.partitionInfo}</Typography></Grid>
+
+                    <Grid item xs={5}><Typography variant="body2" color="text.secondary">Mount Point:</Typography></Grid>
+                    <Grid item xs={7}><Typography variant="body2">{autoMapResult?.mountPoint}</Typography></Grid>
+
+                    <Grid item xs={5}><Typography variant="body2" color="text.secondary">Windows User:</Typography></Grid>
+                    <Grid item xs={7}><Typography variant="body2">{autoMapResult?.username}</Typography></Grid>
+
+                    <Grid item xs={5}><Typography variant="body2" color="text.secondary">Mappings:</Typography></Grid>
+                    <Grid item xs={7}><Typography variant="body2"><strong>{autoMapResult?.count}</strong> new folder mappings added</Typography></Grid>
+                  </Grid>
+                </Paper>
+                <Typography variant="body2">
+                  You can review them in the list or activate them immediately.
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setAutoMapSuccessOpen(false)}>Review List</Button>
+                <Button variant="contained" color="success" onClick={() => {
+                  // "Mount All Now" logic
+                  if (autoMapResult?.newMappings) {
+                    setPendingMountRows(autoMapResult.newMappings);
+                    // Generate a script preview for all items (optional, or just reuse existing dialog logic)
+                    // For "Mount All", let's re-use the confirmation dialog to be safe and consistent
+                    // But we need to generate a script that includes ALL rows
+                    const lines: string[] = [];
+                    lines.push('#!/bin/sh');
+                    lines.push('set -e');
+                    if (!skipPartition && partitionUuid && partitionUuid.trim() !== '') {
+                      lines.push(`mkdir -p "${baseMount}"`);
+                      lines.push(`mount -U ${partitionUuid} "${baseMount}" || mount UUID=${partitionUuid} "${baseMount}" || true`);
+                    }
+                    autoMapResult.newMappings.forEach((r: Mapping) => {
+                      if (r.src && r.target) {
+                        lines.push(`mkdir -p "${r.target}"`);
+                        lines.push(`mount --bind "${r.src}" "${r.target}"`);
+                      }
+                    });
+                    setDialogScript(lines.join('\n') + '\n');
+                    setDialogOpen(true);
+                    setAutoMapSuccessOpen(false);
+                  }
+                }}>
+                  Mount All Now
+                </Button>
+              </DialogActions>
+            </Dialog>
+
             <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
               <Grid container alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
                 <Grid item><Typography variant="h6">Disks & Partitions</Typography></Grid>
@@ -1478,7 +1556,32 @@ If this keeps happening, it might be a bug.`,
                         <Grid item xs={12} md={5}><code>{row.src || '—'}</code></Grid>
                         <Grid item xs={12} md={5}><code>{row.target || '—'}</code></Grid>
                         <Grid item xs={6} md={1}>
-                          <Button size="small" variant="outlined" disabled={!row.src || !row.target} onClick={() => mountRow(row)}>Mount</Button>
+                          {(() => {
+                            const mounted = installedBlocks.some(b => b.targets && b.targets.includes(row.target || ''));
+                            return (
+                              <Button
+                                size="small"
+                                variant={mounted ? "outlined" : "contained"}
+                                color={mounted ? "error" : "primary"}
+                                disabled={!row.src || !row.target}
+                                onClick={() => {
+                                  if (mounted) {
+                                    // Unmount logic
+                                    if (row.target) {
+                                      setRemoveDialogId(null); // Clear ID, we are removing by target
+                                      setRemoveDialogTarget(row.target);
+                                      setRemoveDialogForce(false);
+                                      setRemoveDialogOpen(true);
+                                    }
+                                  } else {
+                                    mountRow(row);
+                                  }
+                                }}
+                              >
+                                {mounted ? "Unmount" : "Mount"}
+                              </Button>
+                            );
+                          })()}
                         </Grid>
                         <Grid item xs={6} md={1}>
                           <IconButton size="small" aria-label="remove" onClick={() => removeRow(row.id)}><DeleteIcon fontSize="small" /></IconButton>
