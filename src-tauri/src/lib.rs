@@ -1219,6 +1219,7 @@ fn remove_fstab_block(id: &str, force: bool) -> Result<String, String> {
 /// - base_mount: mount point for the partition (e.g. /mnt/popos)
 /// - src_inside_partition: absolute path inside the partition once mounted (e.g. /mnt/popos/home/dovndev/Projects)
 /// - target_local: local path to bind onto (e.g. /home/dovndev/Projects)
+/// - storage_mode: "local" (bind src is data on host) or "bindpoint" (bind src is data on partition/remote)
 #[tauri::command]
 fn generate_fstab_line(
     partition_uuid: &str,
@@ -1226,10 +1227,21 @@ fn generate_fstab_line(
     src_inside_partition: &str,
     target_local: &str,
     skip_partition_mount: bool,
+    storage_mode: Option<String>,
 ) -> String {
+    let mode = storage_mode.unwrap_or_else(|| "bindpoint".to_string());
+
+    // If mode is "local", we are binding FROM the host (target_local) TO the partition (src_inside_partition).
+    // If mode is "bindpoint" (default), we are binding FROM the partition (src_inside_partition) TO the host (target_local).
+    let (src, target) = if mode == "local" {
+        (target_local, src_inside_partition)
+    } else {
+        (src_inside_partition, target_local)
+    };
+
     // If user prefers not to include a partition mount line (already mounted) or UUID is empty,
     // only return the bind line. Otherwise include both lines.
-    let bind_line = format!("{} {} none bind 0 0", src_inside_partition, target_local);
+    let bind_line = format!("{} {} none bind 0 0", src, target);
     if skip_partition_mount || partition_uuid.trim().is_empty() {
         return bind_line;
     }

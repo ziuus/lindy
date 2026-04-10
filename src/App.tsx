@@ -42,6 +42,7 @@ type Mapping = {
   id: number;
   src?: string;
   target?: string;
+  storageMode?: "local" | "bindpoint";
 };
 
 type UserFolder = {
@@ -128,8 +129,10 @@ function App() {
     }
     // Create target and bind mount
     if (r.src && r.target) {
-      lines.push(`mkdir -p "${r.target}"`);
-      lines.push(`mount --bind "${r.src}" "${r.target}"`);
+      const mode = r.storageMode || 'bindpoint';
+      const [src, target] = mode === 'local' ? [r.target, r.src] : [r.src, r.target];
+      lines.push(`mkdir -p "${target}"`);
+      lines.push(`mount --bind "${src}" "${target}"`);
     }
     return lines.join('\n') + '\n';
   };
@@ -197,6 +200,7 @@ function App() {
             srcInsidePartition: r.src,
             targetLocal: r.target,
             skipPartitionMount: skipPartition,
+            storageMode: r.storageMode || "bindpoint",
           });
           lines.push(text);
         } catch (e) {
@@ -816,7 +820,7 @@ If this keeps happening, it might be a bug.`,
                 <Grid item key={row.id}>
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <Grid container spacing={2} alignItems="center">
-                      <Grid item xs={12} md={5}>
+                      <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
                           label="Source (inside partition)"
@@ -826,7 +830,7 @@ If this keeps happening, it might be a bug.`,
                           onClick={() => pickDir(row.id, "src")}
                         />
                       </Grid>
-                      <Grid item xs={12} md={5}>
+                      <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
                           label="Target (local bind point)"
@@ -835,6 +839,22 @@ If this keeps happening, it might be a bug.`,
                           InputProps={{ readOnly: true }}
                           onClick={() => pickDir(row.id, "target")}
                         />
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Storage</InputLabel>
+                          <Select
+                            value={row.storageMode || "bindpoint"}
+                            label="Storage"
+                            onChange={(e) => {
+                              const mode = e.target.value as "local" | "bindpoint";
+                              setRows(prev => prev.map(r => r.id === row.id ? { ...r, storageMode: mode } : r));
+                            }}
+                          >
+                            <MenuItem value="bindpoint">On Partition</MenuItem>
+                            <MenuItem value="local">On Host</MenuItem>
+                          </Select>
+                        </FormControl>
                       </Grid>
                       <Grid item xs={6} md={1}>
                         {(() => {
